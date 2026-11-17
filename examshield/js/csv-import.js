@@ -100,8 +100,8 @@ const CSVImport = {
     });
 
     // Template download
-    document.getElementById('btn-download-tpl').onclick = () => {
-      this.downloadTemplate(this.currentType);
+    document.getElementById('btn-download-tpl').onclick = async () => {
+      await this.downloadTemplate(this.currentType);
     };
 
     // File input change
@@ -128,7 +128,7 @@ const CSVImport = {
   },
 
   // Generate downloadable sample templates
-  downloadTemplate(type) {
+  async downloadTemplate(type) {
     if (typeof XLSX === 'undefined') {
       UI.toast('Spreadsheet engine loading, please retry in a moment', 'warning');
       return;
@@ -137,25 +137,38 @@ const CSVImport = {
     let filename = `ExamShield_${type}_Template.csv`;
 
     if (type === 'students') {
+      let registeredClasses = ['CS-101', 'CS-102', '10-A', '10-B'];
+      if (typeof ClassHelper !== 'undefined') {
+        try {
+          const dbClasses = await ClassHelper.getAllClasses();
+          if (dbClasses && dbClasses.length) registeredClasses = dbClasses;
+        } catch (e) {
+          console.warn('[CSV Import] Could not fetch classes:', e);
+        }
+      }
+      const c1 = registeredClasses[0] || 'CS-101';
+      const c2 = registeredClasses[1] || 'CS-102';
+      const c3 = registeredClasses[2] || '10-A';
+
       data = [
-        { name: 'Aarav Sharma', email: 'aarav1@demo.examshield.in', registerNumber: 'REG2024001', classId: 'CS-A' },
-        { name: 'Diya Patel', email: 'diya2@demo.examshield.in', registerNumber: 'REG2024002', classId: 'CS-A' },
-        { name: 'Vihaan Kumar', email: 'vihaan3@demo.examshield.in', registerNumber: 'REG2024003', classId: 'CS-A' },
-        { name: 'Ananya Singh', email: 'ananya4@demo.examshield.in', registerNumber: 'REG2024004', classId: 'CS-B' },
-        { name: 'Arjun Reddy', email: 'arjun5@demo.examshield.in', registerNumber: 'REG2024005', classId: 'CS-B' }
+        { Name: 'Aarav Sharma', RegisterNumber: 'REG2024001', Email: 'aarav1@demo.examshield.in', Phone: '+91 98765 43210', Class: c1, EmergencyContact: '+91 98765 00001', BloodGroup: 'O+' },
+        { Name: 'Diya Patel', RegisterNumber: 'REG2024002', Email: 'diya2@demo.examshield.in', Phone: '+91 98765 43211', Class: c1, EmergencyContact: '+91 98765 00002', BloodGroup: 'A+' },
+        { Name: 'Vihaan Kumar', RegisterNumber: 'REG2024003', Email: 'vihaan3@demo.examshield.in', Phone: '+91 98765 43212', Class: c2, EmergencyContact: '+91 98765 00003', BloodGroup: 'B+' },
+        { Name: 'Ananya Singh', RegisterNumber: 'REG2024004', Email: 'ananya4@demo.examshield.in', Phone: '+91 98765 43213', Class: c2, EmergencyContact: '+91 98765 00004', BloodGroup: 'AB+' },
+        { Name: 'Arjun Reddy', RegisterNumber: 'REG2024005', Email: 'arjun5@demo.examshield.in', Phone: '+91 98765 43214', Class: c3, EmergencyContact: '+91 98765 00005', BloodGroup: 'O-' }
       ];
     } else if (type === 'assignments') {
       data = [
-        { registerNumber: 'REG2024001', examId: 'exam_001', roomId: 'room_A101', seatNumber: 'A1' },
-        { registerNumber: 'REG2024002', examId: 'exam_001', roomId: 'room_A101', seatNumber: 'A2' },
-        { registerNumber: 'REG2024003', examId: 'exam_001', roomId: 'room_A101', seatNumber: 'A3' },
-        { registerNumber: 'REG2024004', examId: 'exam_001', roomId: 'room_A101', seatNumber: 'A4' }
+        { RegisterNumber: 'REG2024001', ExamId: 'exam_001', RoomId: 'room_A101', SeatNumber: 'A1' },
+        { RegisterNumber: 'REG2024002', ExamId: 'exam_001', RoomId: 'room_A101', SeatNumber: 'A2' },
+        { RegisterNumber: 'REG2024003', ExamId: 'exam_001', RoomId: 'room_A101', SeatNumber: 'A3' },
+        { RegisterNumber: 'REG2024004', ExamId: 'exam_001', RoomId: 'room_A101', SeatNumber: 'A4' }
       ];
     } else if (type === 'rooms') {
       data = [
-        { name: 'A-101', building: 'Academic Block A', block: 'A', rows: 5, columns: 6, capacity: 30 },
-        { name: 'A-102', building: 'Academic Block A', block: 'A', rows: 4, columns: 5, capacity: 20 },
-        { name: 'B-101', building: 'Academic Block B', block: 'B', rows: 5, columns: 5, capacity: 25 }
+        { Name: 'A-101', Building: 'Academic Block A', Block: 'A', Rows: 5, Columns: 6, Capacity: 30 },
+        { Name: 'A-102', Building: 'Academic Block A', Block: 'A', Rows: 4, Columns: 5, Capacity: 20 },
+        { Name: 'B-101', Building: 'Academic Block B', Block: 'B', Rows: 5, Columns: 5, Capacity: 25 }
       ];
     }
 
@@ -214,27 +227,39 @@ const CSVImport = {
       const rowErrors = [];
 
       if (type === 'students') {
-        if (!row.name || !String(row.name).trim()) rowErrors.push('Missing student name');
-        if (!row.email || !String(row.email).includes('@')) rowErrors.push('Invalid email address');
-        if (!row.registerNumber || !String(row.registerNumber).trim()) rowErrors.push('Missing register number');
+        const name = row.Name || row.name || row['Full Name'];
+        const email = row.Email || row.email;
+        const regNum = row.RegisterNumber || row.registerNumber || row.regNo || row['Reg Number'];
+        const classVal = row.Class || row.class || row.classId || row.ClassId || row.batch || row.Batch;
+        if (!name || !String(name).trim()) rowErrors.push('Missing student name');
+        if (!email || !String(email).includes('@')) rowErrors.push('Invalid email address');
+        if (!regNum || !String(regNum).trim()) rowErrors.push('Missing register number');
+        if (!classVal || !String(classVal).trim()) rowErrors.push('Missing class / batch');
       } else if (type === 'assignments') {
-        if (!row.registerNumber) rowErrors.push('Missing register number');
-        else if (!regNumMap.has(String(row.registerNumber).trim())) {
-          rowErrors.push(`Candidate with register number "${row.registerNumber}" not found in database`);
+        const regNum = row.RegisterNumber || row.registerNumber || row.regNo || row['Reg Number'];
+        const examId = row.ExamId || row.examId;
+        const roomId = row.RoomId || row.roomId;
+        const seatNumber = row.SeatNumber || row.seatNumber;
+        if (!regNum) rowErrors.push('Missing register number');
+        else if (!regNumMap.has(String(regNum).trim())) {
+          rowErrors.push(`Candidate with register number "${regNum}" not found in database`);
         }
-        if (!row.examId) rowErrors.push('Missing examId');
-        else if (!examIds.has(String(row.examId).trim())) {
-          rowErrors.push(`Examination ID "${row.examId}" does not exist`);
+        if (!examId) rowErrors.push('Missing examId');
+        else if (!examIds.has(String(examId).trim())) {
+          rowErrors.push(`Examination ID "${examId}" does not exist`);
         }
-        if (!row.roomId) rowErrors.push('Missing roomId');
-        else if (!roomIds.has(String(row.roomId).trim())) {
-          rowErrors.push(`Room ID "${row.roomId}" does not exist`);
+        if (!roomId) rowErrors.push('Missing roomId');
+        else if (!roomIds.has(String(roomId).trim())) {
+          rowErrors.push(`Room ID "${roomId}" does not exist`);
         }
-        if (!row.seatNumber) rowErrors.push('Missing seat number');
+        if (!seatNumber) rowErrors.push('Missing seat number');
       } else if (type === 'rooms') {
-        if (!row.name) rowErrors.push('Missing room name');
-        if (!row.rows || isNaN(row.rows) || Number(row.rows) <= 0) rowErrors.push('Invalid rows count');
-        if (!row.columns || isNaN(row.columns) || Number(row.columns) <= 0) rowErrors.push('Invalid columns count');
+        const name = row.Name || row.name;
+        const rows = row.Rows || row.rows;
+        const cols = row.Columns || row.columns || row.Cols || row.cols;
+        if (!name) rowErrors.push('Missing room name');
+        if (!rows || isNaN(rows) || Number(rows) <= 0) rowErrors.push('Invalid rows count');
+        if (!cols || isNaN(cols) || Number(cols) <= 0) rowErrors.push('Invalid columns count');
       }
 
       if (rowErrors.length > 0) {
@@ -326,35 +351,64 @@ const CSVImport = {
 
         try {
           if (type === 'students') {
+            const discoveredClasses = new Set();
             validRows.forEach(item => {
               const r = item.data;
               const uid = 'student_' + generateId();
+              const name = String(r.Name || r.name || '').trim();
+              const email = String(r.Email || r.email || '').trim().toLowerCase();
+              const regNum = String(r.RegisterNumber || r.registerNumber || r.regNo || '').trim();
+              const classVal = String(r.Class || r.class || r.classId || r.ClassId || r.batch || r.Batch || 'DEFAULT').trim();
+              const phone = String(r.Phone || r.phone || r.contact || r.Contact || '').trim();
+              const emergency = String(r.EmergencyContact || r.emergencyContact || r.emergencyContactPhone || '').trim();
+              const blood = String(r.BloodGroup || r.bloodGroup || '').trim();
+
+              if (classVal && classVal !== 'DEFAULT') {
+                discoveredClasses.add(classVal);
+              }
+
               updates['users/' + uid] = {
                 id: uid,
-                name: String(r.name).trim(),
-                email: String(r.email).trim().toLowerCase(),
+                name: name,
+                email: email,
                 role: 'student',
-                registerNumber: String(r.registerNumber).trim(),
-                classId: String(r.classId || 'DEFAULT').trim(),
+                registerNumber: regNum,
+                classId: classVal,
+                phone: phone,
+                emergencyContactPhone: emergency,
+                bloodGroup: blood,
                 active: true,
                 createdAt: DB.serverTimestamp()
               };
               successCount++;
             });
+
+            // Auto-register newly discovered classes into examshield/classes
+            discoveredClasses.forEach(c => {
+              const cId = c.replace(/[^a-zA-Z0-9_-]/g, '_');
+              updates['classes/' + cId] = {
+                id: cId,
+                name: c,
+                createdAt: DB.serverTimestamp()
+              };
+            });
           } else if (type === 'assignments') {
             for (const item of validRows) {
               const r = item.data;
-              const regNum = String(r.registerNumber).trim();
+              const regNum = String(r.RegisterNumber || r.registerNumber || r.regNo || '').trim();
+              const examId = String(r.ExamId || r.examId || '').trim();
+              const roomId = String(r.RoomId || r.roomId || '').trim();
+              const seatNumber = String(r.SeatNumber || r.seatNumber || '').trim();
               const studentUid = regNumMap.get(regNum) || ('student_' + regNum);
               const assignId = 'asgn_' + regNum;
               const token = generateQRToken();
 
-              updates['assignments/' + r.examId + '/' + assignId] = {
+              updates['assignments/' + examId + '/' + assignId] = {
                 id: assignId,
                 studentId: studentUid,
                 registerNumber: regNum,
-                roomId: String(r.roomId).trim(),
-                seatNumber: String(r.seatNumber).trim(),
+                roomId: roomId,
+                seatNumber: seatNumber,
                 qrToken: token,
                 status: 'active',
                 createdAt: DB.serverTimestamp()
@@ -362,9 +416,9 @@ const CSVImport = {
 
               updates['qrTokens/' + token] = {
                 assignmentId: assignId,
-                examId: String(r.examId).trim(),
+                examId: examId,
                 studentId: studentUid,
-                roomId: String(r.roomId).trim(),
+                roomId: roomId,
                 active: true,
                 createdAt: DB.serverTimestamp()
               };
@@ -374,17 +428,19 @@ const CSVImport = {
           } else if (type === 'rooms') {
             validRows.forEach(item => {
               const r = item.data;
-              const roomId = 'room_' + String(r.name).replace(/[^a-zA-Z0-9]/g, '');
-              const rowsNum = parseInt(r.rows) || 5;
-              const colsNum = parseInt(r.columns) || 5;
+              const name = String(r.Name || r.name || '').trim();
+              const roomId = 'room_' + name.replace(/[^a-zA-Z0-9]/g, '');
+              const rowsNum = parseInt(r.Rows || r.rows) || 5;
+              const colsNum = parseInt(r.Columns || r.columns) || 5;
+              const cap = parseInt(r.Capacity || r.capacity) || (rowsNum * colsNum);
               updates['rooms/' + roomId] = {
                 id: roomId,
-                name: String(r.name).trim(),
-                building: String(r.building || 'Main Building').trim(),
-                block: String(r.block || 'A').trim(),
+                name: name,
+                building: String(r.Building || r.building || 'Main Building').trim(),
+                block: String(r.Block || r.block || 'A').trim(),
                 rows: rowsNum,
                 columns: colsNum,
-                capacity: parseInt(r.capacity) || (rowsNum * colsNum),
+                capacity: cap,
                 status: 'not-ready',
                 invigilatorId: '',
                 createdAt: DB.serverTimestamp(),

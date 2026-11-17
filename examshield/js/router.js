@@ -59,9 +59,6 @@ const Router = {
         { id: 'admin-announcements', label: 'Announcements', icon: 'megaphone', route: 'admin/announcements' },
         { id: 'admin-room-control', label: 'Room Control', icon: 'monitor', route: 'admin/room-control' },
       ]},
-      { section: 'Communication', items: [
-        { id: 'admin-whatsapp', label: 'WhatsApp', icon: 'message-circle', route: 'admin/whatsapp' },
-      ]},
       { section: 'Reports', items: [
         { id: 'admin-reports', label: 'Reports', icon: 'bar-chart-2', route: 'admin/reports' },
         { id: 'admin-settings', label: 'Settings', icon: 'settings', route: 'admin/settings' },
@@ -75,10 +72,15 @@ const Router = {
 
   handleAuthChange() {
     if (Auth.isAuthenticated()) {
-      const role = Auth.getRole();
+      let role = Auth.getRole();
       if (!role) {
-        this.renderUnauthorized();
-        return;
+        if (Auth.currentUser && Auth.currentUser.isCandidateSession) {
+          role = 'student';
+          if (Auth.currentUserData) Auth.currentUserData.role = 'student';
+        } else {
+          this.renderUnauthorized();
+          return;
+        }
       }
       this.currentRole = role;
       this.renderAppShell();
@@ -148,8 +150,16 @@ const Router = {
   },
 
   renderAppShell() {
-    const role = Auth.getRole();
-    const nav = this.NAV[role] || [];
+    const rawRole = Auth.getRole();
+    const role = (rawRole || (Auth.currentUser && Auth.currentUser.isCandidateSession ? 'student' : 'student')).toLowerCase();
+    
+    // Resolve navigation items with multiple resilient fallbacks
+    let nav = this.NAV[role];
+    if (!nav || !nav.length) {
+      if (role.includes('admin')) nav = this.NAV.admin;
+      else if (role.includes('invig')) nav = this.NAV.invigilator;
+      else nav = this.NAV.student;
+    }
 
     const app = document.getElementById('app');
     app.innerHTML = `
@@ -191,7 +201,7 @@ const Router = {
               <div class="user-avatar">${Auth.getUserInitials()}</div>
               <div class="user-info">
                 <div class="user-name">${UI.escapeHtml(Auth.getUserName())}</div>
-                <div class="user-role">${UI.escapeHtml(role)}</div>
+                <div class="user-role">${UI.escapeHtml(role === 'student' ? (Auth.currentUserData?.registerNumber || 'Student') : role)}</div>
               </div>
               <button class="btn btn-ghost btn-sm" onclick="Auth.logout()" title="Sign out">
                 <i data-lucide="log-out" style="width:16px;height:16px;"></i>

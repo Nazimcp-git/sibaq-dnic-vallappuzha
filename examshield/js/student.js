@@ -41,22 +41,58 @@ const StudentModule = {
   async getStudentContext() {
     const uid = Auth.getUid();
     const settings = await Database.get(DB.settings()) || {};
-    const activeExamId = settings.activeExamId || 'exam_001';
+    let activeExamId = settings.activeExamId || 'exam_001';
 
-    const exam = await Database.get(DB.exam(activeExamId));
-    const assignmentsMap = await Database.get(DB.assignments(activeExamId)) || {};
+    const allExams = await Database.getList(DB.exams());
+    const studentUser = Auth.currentUserData || await Database.get(DB.user(uid)) || {};
+    const studentClass = String(studentUser.classId || studentUser.class || '').trim().toUpperCase();
+
+    let exam = await Database.get(DB.exam(activeExamId));
+    let assignmentsMap = await Database.get(DB.assignments(activeExamId)) || {};
 
     let studentAssignment = null;
     let assignmentId = null;
 
-    // Match by studentId or registerNumber
-    const studentUser = Auth.currentUserData || await Database.get(DB.user(uid)) || {};
-
+    // First check if student has assignment in activeExamId
     for (const [asgnKey, asgn] of Object.entries(assignmentsMap)) {
       if (asgn.studentId === uid || (studentUser.registerNumber && asgn.registerNumber === studentUser.registerNumber)) {
         studentAssignment = asgn;
         assignmentId = asgnKey;
         break;
+      }
+    }
+
+    // If not found in default activeExamId, check all other exams for an assignment
+    if (!studentAssignment && allExams.length > 0) {
+      for (const ex of allExams) {
+        if (ex.id === activeExamId) continue;
+        const asgns = await Database.get(DB.assignments(ex.id)) || {};
+        for (const [asgnKey, asgn] of Object.entries(asgns)) {
+          if (asgn.studentId === uid || (studentUser.registerNumber && asgn.registerNumber === studentUser.registerNumber)) {
+            studentAssignment = asgn;
+            assignmentId = asgnKey;
+            activeExamId = ex.id;
+            exam = ex;
+            assignmentsMap = asgns;
+            break;
+          }
+        }
+        if (studentAssignment) break;
+      }
+    }
+
+    // If still no assignment, match an exam targeted for the student's class
+    if (!studentAssignment && allExams.length > 0) {
+      const targetedExam = allExams.find(ex => {
+        if (ex.status === 'cancelled') return false;
+        const targetClasses = Array.isArray(ex.targetClasses) ? ex.targetClasses : [];
+        if (!targetClasses.length || targetClasses.includes('all')) return true;
+        if (!studentClass) return false;
+        return targetClasses.some(c => String(c).trim().toUpperCase() === studentClass);
+      });
+      if (targetedExam) {
+        activeExamId = targetedExam.id;
+        exam = targetedExam;
       }
     }
 
@@ -838,7 +874,7 @@ const StudentModule = {
                   <input type="email" class="form-input text-sm bg-gray-100" value="${UI.escapeHtml(studentUser.email || '')}" readonly disabled>
                 </div>
                 <div class="form-group">
-                  <label class="form-label text-xs">Contact Mobile / WhatsApp Phone</label>
+                  <label class="form-label text-xs">Contact Mobile Number</label>
                   <input type="tel" id="prof-phone" class="form-input text-sm" placeholder="e.g. +91 9876543210" value="${UI.escapeHtml(studentUser.phone || '')}">
                 </div>
               </div>
@@ -1030,7 +1066,7 @@ const StudentModule = {
                   <input type="email" class="form-input text-sm bg-gray-100" value="${UI.escapeHtml(studentUser.email || '')}" readonly disabled>
                 </div>
                 <div class="form-group">
-                  <label class="form-label text-xs">Contact Mobile / WhatsApp Phone</label>
+                  <label class="form-label text-xs">Contact Mobile Number</label>
                   <input type="tel" id="prof-phone" class="form-input text-sm" placeholder="e.g. +91 9876543210" value="${UI.escapeHtml(studentUser.phone || '')}">
                 </div>
               </div>

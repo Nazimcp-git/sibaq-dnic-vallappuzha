@@ -38,9 +38,6 @@ const AdminModule = {
       case 'room-control':
         await this.renderRoomControlCenter();
         break;
-      case 'whatsapp':
-        WhatsAppHelper.renderWhatsAppPage(document.getElementById('page-content'));
-        break;
       case 'reports':
         await this.renderReports();
         break;
@@ -115,9 +112,6 @@ const AdminModule = {
             </button>
             <button class="btn btn-secondary btn-sm" onclick="Router.navigate('admin/import')">
               <i data-lucide="upload"></i> CSV Bulk Import
-            </button>
-            <button class="btn btn-secondary btn-sm" onclick="Router.navigate('admin/whatsapp')">
-              <i data-lucide="message-circle"></i> WhatsApp Broadcast
             </button>
             <button class="btn btn-secondary btn-sm" onclick="Router.navigate('admin/seats')">
               <i data-lucide="grid-3x3"></i> Allocate Seats
@@ -260,14 +254,19 @@ const AdminModule = {
 
     const html = `
       <div class="page-header">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:var(--space-2);">
           <div>
             <h2>Examination Schedules</h2>
-            <div class="page-subtitle">Configure examination papers, active sessions, and time slots</div>
+            <div class="page-subtitle">Configure examination papers, target cohort classes, active sessions, and time slots</div>
           </div>
-          <button class="btn btn-primary btn-sm" onclick="AdminModule.renderNewExamModal()">
-            <i data-lucide="plus"></i> Create Examination
-          </button>
+          <div style="display:flex;gap:var(--space-2);">
+            <button class="btn btn-secondary btn-sm" onclick="AdminModule.renderClassManagementModal()">
+              <i data-lucide="layers"></i> Manage Classes
+            </button>
+            <button class="btn btn-primary btn-sm" onclick="AdminModule.renderNewExamModal()">
+              <i data-lucide="plus"></i> Create Examination
+            </button>
+          </div>
         </div>
       </div>
 
@@ -276,6 +275,7 @@ const AdminModule = {
           <thead>
             <tr>
               <th>Title / Subject</th>
+              <th>Target Classes</th>
               <th>Date</th>
               <th>Time Slot</th>
               <th>Status</th>
@@ -284,24 +284,40 @@ const AdminModule = {
             </tr>
           </thead>
           <tbody>
-            ${exams.map(ex => `
-              <tr>
-                <td class="font-semibold">${UI.escapeHtml(ex.title)}</td>
-                <td>${UI.formatDate(ex.date)}</td>
-                <td class="mono text-xs">${ex.startTime} – ${ex.endTime}</td>
-                <td>${UI.statusBadge(ex.status || 'scheduled')}</td>
-                <td>
-                  ${ex.id === activeExamId
-        ? '<span class="badge badge-success">ACTIVE SESSION</span>'
-        : `<button class="btn btn-secondary btn-sm" onclick="AdminModule.setActiveExam('${ex.id}')">Make Active</button>`}
-                </td>
-                <td style="text-align:right;">
-                  <button class="btn btn-ghost btn-sm" onclick="AdminModule.renderEditExamModal('${ex.id}')">
-                    <i data-lucide="edit-2" style="width:14px;height:14px;"></i>
-                  </button>
-                </td>
-              </tr>
-            `).join('')}
+            ${exams.map(ex => {
+              const targetCls = (ex.targetClasses && ex.targetClasses.length && !ex.targetClasses.includes('all'))
+                ? ex.targetClasses
+                : null;
+
+              return `
+                <tr>
+                  <td class="font-semibold">${UI.escapeHtml(ex.title)}</td>
+                  <td>
+                    ${targetCls
+                      ? targetCls.map(c => `<span class="badge badge-normal text-xs mono" style="margin:2px 1px;">Class ${UI.escapeHtml(c)}</span>`).join('')
+                      : '<span class="badge badge-muted text-xs">All Classes</span>'}
+                  </td>
+                  <td>${UI.formatDate(ex.date)}</td>
+                  <td class="mono text-xs">${ex.startTime} – ${ex.endTime}</td>
+                  <td>${UI.statusBadge(ex.status || 'scheduled')}</td>
+                  <td>
+                    ${ex.id === activeExamId
+                      ? '<span class="badge badge-success">ACTIVE SESSION</span>'
+                      : `<button class="btn btn-secondary btn-sm" onclick="AdminModule.setActiveExam('${ex.id}')">Make Active</button>`}
+                  </td>
+                  <td style="text-align:right;">
+                    <div style="display:inline-flex;gap:var(--space-1);">
+                      <button class="btn btn-ghost btn-sm" title="Edit Schedule & Target Classes" onclick="AdminModule.renderEditExamModal('${ex.id}')">
+                        <i data-lucide="edit-2" style="width:14px;height:14px;"></i>
+                      </button>
+                      <button class="btn btn-ghost btn-sm" title="Delete Examination" style="color:var(--color-critical);" onclick="AdminModule.deleteExam('${ex.id}', '${UI.escapeHtml(ex.title)}')">
+                        <i data-lucide="trash-2" style="width:14px;height:14px;"></i>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
           </tbody>
         </table>
       </div>
@@ -310,14 +326,65 @@ const AdminModule = {
     UI.renderPage(html);
   },
 
-  // Modal: Create new exam
-  renderNewExamModal() {
+  // Modal: Create new exam with Target Classes selection
+  async renderNewExamModal() {
+    const classes = await ClassHelper.getAllClasses();
+
     const modalHtml = `
       <form id="new-exam-form">
         <div class="form-group">
           <label class="form-label">Subject / Title <span class="required">*</span></label>
           <input type="text" id="exam-title" class="form-input" placeholder="e.g. CS301 — Data Structures & Algorithms" required>
         </div>
+
+        <!-- Target Classes Multi-Selection -->
+        <div class="form-group">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-1);">
+            <label class="form-label mb-0">Designated Target Classes / Batches <span class="required">*</span></label>
+            <button type="button" class="btn btn-ghost btn-xs" id="btn-toggle-quick-class" style="color:var(--color-green-700);font-weight:600;">
+              <i data-lucide="plus-circle" style="width:13px;height:13px;"></i> + New Class
+            </button>
+          </div>
+          <div class="text-xs text-muted mb-2">Select one or more classes eligible for this exam. Seat allocation will only assign candidates from the checked classes.</div>
+
+          <!-- Quick Add Class Panel -->
+          <div id="quick-class-panel" style="display:none;background:var(--color-off-white);padding:var(--space-2);border-radius:var(--radius-sm);border:1px dashed var(--border-color);margin-bottom:var(--space-2);">
+            <div style="display:flex;gap:var(--space-2);align-items:center;">
+              <input type="text" id="quick-class-code" class="form-input text-xs mono" placeholder="Enter new class (e.g. 10-C, CS-302)" style="padding:4px 8px;flex:1;">
+              <button type="button" class="btn btn-primary btn-xs" id="btn-save-quick-class">Add Class</button>
+              <button type="button" class="btn btn-secondary btn-xs" id="btn-close-quick-class">Cancel</button>
+            </div>
+          </div>
+
+          <!-- Quick Action Buttons & Live Summary -->
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-2);flex-wrap:wrap;gap:var(--space-1);">
+            <div class="text-xs" id="exam-class-summary-text">Target: <span class="badge badge-success text-xs">All Classes (Open Campus)</span></div>
+            <div style="display:flex;gap:var(--space-1);">
+              <button type="button" class="btn btn-ghost btn-xs text-xs" id="btn-select-all-classes">Select All</button>
+              <button type="button" class="btn btn-ghost btn-xs text-xs" id="btn-clear-classes">Clear / Open All</button>
+            </div>
+          </div>
+
+          <!-- Checkboxes Container -->
+          <div style="background:var(--color-off-white);padding:var(--space-3);border-radius:var(--radius-sm);border:1px solid var(--border-subtle);max-height:190px;overflow-y:auto;" id="exam-classes-container">
+            <label style="display:flex;align-items:center;gap:var(--space-2);padding:6px 8px;font-weight:600;font-size:var(--text-xs);border-bottom:1px solid var(--border-color);margin-bottom:6px;cursor:pointer;background:#fff;border-radius:var(--radius-sm);">
+              <input type="checkbox" id="exam-class-all" checked>
+              <span>All Classes <span class="text-muted font-normal">(Open Campus Examination)</span></span>
+            </label>
+            <div id="exam-specific-classes-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-2);">
+              ${classes.map(c => `
+                <label class="class-card-item" style="display:flex;align-items:center;gap:var(--space-2);padding:6px 8px;font-size:var(--text-xs);cursor:pointer;background:#fff;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);transition:all 0.2s ease;">
+                  <input type="checkbox" name="exam-target-class" value="${UI.escapeHtml(c.code)}" class="exam-cls-chk">
+                  <div>
+                    <span class="font-bold mono">Class ${UI.escapeHtml(c.code)}</span>
+                    <div class="text-muted" style="font-size:10px;">${UI.escapeHtml(c.name || 'Class Batch ' + c.code)}</div>
+                  </div>
+                </label>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+
         <div class="form-group">
           <label class="form-label">Date <span class="required">*</span></label>
           <input type="date" id="exam-date" class="form-input" required value="${new Date().toISOString().split('T')[0]}">
@@ -349,9 +416,120 @@ const AdminModule = {
 
     UI.showModal('Create Examination Schedule', modalHtml);
 
+    // Multi-class Selection & Toggle Logic
+    const chkAll = document.getElementById('exam-class-all');
+    const summaryText = document.getElementById('exam-class-summary-text');
+    const grid = document.getElementById('exam-specific-classes-grid');
+
+    const updateClassSummary = () => {
+      const checkedChks = Array.from(grid.querySelectorAll('.exam-cls-chk:checked'));
+      if (chkAll.checked || checkedChks.length === 0) {
+        chkAll.checked = true;
+        summaryText.innerHTML = `Target: <span class="badge badge-success text-xs">All Classes (Open Campus)</span>`;
+      } else {
+        const codes = checkedChks.map(c => c.value);
+        summaryText.innerHTML = `Target: <span class="badge badge-outline text-xs" style="background:#fff;font-weight:bold;">${codes.length} Classes Selected</span> (${codes.join(', ')})`;
+      }
+
+      grid.querySelectorAll('.class-card-item').forEach(card => {
+        const chk = card.querySelector('.exam-cls-chk');
+        if (chk && chk.checked) {
+          card.style.borderColor = 'var(--color-green-600)';
+          card.style.background = '#f0fdf4';
+        } else {
+          card.style.borderColor = 'var(--border-subtle)';
+          card.style.background = '#fff';
+        }
+      });
+    };
+
+    chkAll.onchange = () => {
+      if (chkAll.checked) {
+        grid.querySelectorAll('.exam-cls-chk').forEach(c => c.checked = false);
+      }
+      updateClassSummary();
+    };
+
+    const attachCheckboxListeners = () => {
+      grid.querySelectorAll('.exam-cls-chk').forEach(chk => {
+        chk.onchange = () => {
+          if (chk.checked) chkAll.checked = false;
+          updateClassSummary();
+        };
+      });
+    };
+    attachCheckboxListeners();
+
+    document.getElementById('btn-select-all-classes').onclick = () => {
+      chkAll.checked = false;
+      grid.querySelectorAll('.exam-cls-chk').forEach(c => c.checked = true);
+      updateClassSummary();
+    };
+
+    document.getElementById('btn-clear-classes').onclick = () => {
+      chkAll.checked = true;
+      grid.querySelectorAll('.exam-cls-chk').forEach(c => c.checked = false);
+      updateClassSummary();
+    };
+
+    // Quick Add Class inline
+    const quickPanel = document.getElementById('quick-class-panel');
+    document.getElementById('btn-toggle-quick-class').onclick = () => {
+      quickPanel.style.display = quickPanel.style.display === 'none' ? 'block' : 'none';
+      if (quickPanel.style.display === 'block') {
+        document.getElementById('quick-class-code').focus();
+      }
+    };
+    document.getElementById('btn-close-quick-class').onclick = () => {
+      quickPanel.style.display = 'none';
+    };
+
+    document.getElementById('btn-save-quick-class').onclick = async () => {
+      const codeInput = document.getElementById('quick-class-code');
+      const code = codeInput.value.trim().toUpperCase();
+      if (!code) return;
+
+      await ClassHelper.addClass(code);
+      UI.toast(`Class ${code} registered!`, 'success');
+      codeInput.value = '';
+      quickPanel.style.display = 'none';
+
+      // Check if already in grid
+      let existingCard = Array.from(grid.querySelectorAll('.exam-cls-chk')).find(c => c.value === code);
+      if (existingCard) {
+        existingCard.checked = true;
+      } else {
+        const newCard = document.createElement('label');
+        newCard.className = 'class-card-item';
+        newCard.style = 'display:flex;align-items:center;gap:var(--space-2);padding:6px 8px;font-size:var(--text-xs);cursor:pointer;background:#f0fdf4;border:1px solid var(--color-green-600);border-radius:var(--radius-sm);';
+        newCard.innerHTML = `
+          <input type="checkbox" name="exam-target-class" value="${UI.escapeHtml(code)}" class="exam-cls-chk" checked>
+          <div>
+            <span class="font-bold mono">Class ${UI.escapeHtml(code)}</span>
+            <div class="text-muted" style="font-size:10px;">Class Batch ${UI.escapeHtml(code)}</div>
+          </div>
+        `;
+        grid.appendChild(newCard);
+        attachCheckboxListeners();
+      }
+
+      chkAll.checked = false;
+      updateClassSummary();
+    };
+
     document.getElementById('new-exam-form').onsubmit = async (e) => {
       e.preventDefault();
       const examId = generateId('exam');
+
+      // Determine target classes
+      let targetClasses = ['all'];
+      if (!chkAll.checked) {
+        const checkedValues = Array.from(grid.querySelectorAll('.exam-cls-chk:checked')).map(c => c.value.trim());
+        if (checkedValues.length > 0) {
+          targetClasses = checkedValues;
+        }
+      }
+
       const record = {
         id: examId,
         title: document.getElementById('exam-title').value.trim(),
@@ -359,19 +537,269 @@ const AdminModule = {
         startTime: document.getElementById('exam-start').value,
         endTime: document.getElementById('exam-end').value,
         status: document.getElementById('exam-status').value,
+        targetClasses: targetClasses,
         createdAt: DB.serverTimestamp()
       };
 
       await Database.set(DB.exam(examId), record);
-      // Auto set as active if chosen
       if (record.status === 'active') {
         await Database.update(DB.settings(), { activeExamId: examId });
       }
 
       UI.closeModal();
-      UI.toast('Examination created successfully', 'success');
+      UI.toast(`Examination created designated for ${targetClasses.includes('all') ? 'All Classes' : targetClasses.join(', ')}!`, 'success');
       AdminModule.renderExams();
     };
+  },
+
+  // Modal: Edit existing exam and modify designated target classes
+  async renderEditExamModal(examId) {
+    const exam = await Database.get(DB.exam(examId));
+    if (!exam) return;
+
+    const classes = await ClassHelper.getAllClasses();
+    const existingTargets = exam.targetClasses || ['all'];
+    const isAll = existingTargets.includes('all');
+
+    const modalHtml = `
+      <form id="edit-exam-form">
+        <div class="form-group">
+          <label class="form-label">Subject / Title <span class="required">*</span></label>
+          <input type="text" id="edit-exam-title" class="form-input" value="${UI.escapeHtml(exam.title || '')}" required>
+        </div>
+
+        <!-- Target Classes Multi-Selection -->
+        <div class="form-group">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-1);">
+            <label class="form-label mb-0">Designated Target Classes / Batches <span class="required">*</span></label>
+            <button type="button" class="btn btn-ghost btn-xs" id="btn-edit-toggle-quick-class" style="color:var(--color-green-700);font-weight:600;">
+              <i data-lucide="plus-circle" style="width:13px;height:13px;"></i> + New Class
+            </button>
+          </div>
+          <div class="text-xs text-muted mb-2">Select one or more classes eligible for this exam. Seat allocation will only assign candidates from the checked classes.</div>
+
+          <!-- Quick Add Class Panel -->
+          <div id="edit-quick-class-panel" style="display:none;background:var(--color-off-white);padding:var(--space-2);border-radius:var(--radius-sm);border:1px dashed var(--border-color);margin-bottom:var(--space-2);">
+            <div style="display:flex;gap:var(--space-2);align-items:center;">
+              <input type="text" id="edit-quick-class-code" class="form-input text-xs mono" placeholder="Enter new class (e.g. 10-C, CS-302)" style="padding:4px 8px;flex:1;">
+              <button type="button" class="btn btn-primary btn-xs" id="btn-edit-save-quick-class">Add Class</button>
+              <button type="button" class="btn btn-secondary btn-xs" id="btn-edit-close-quick-class">Cancel</button>
+            </div>
+          </div>
+
+          <!-- Quick Action Buttons & Live Summary -->
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-2);flex-wrap:wrap;gap:var(--space-1);">
+            <div class="text-xs" id="edit-exam-class-summary-text">Target: <span class="badge badge-success text-xs">All Classes (Open Campus)</span></div>
+            <div style="display:flex;gap:var(--space-1);">
+              <button type="button" class="btn btn-ghost btn-xs text-xs" id="btn-edit-select-all-classes">Select All</button>
+              <button type="button" class="btn btn-ghost btn-xs text-xs" id="btn-edit-clear-classes">Clear / Open All</button>
+            </div>
+          </div>
+
+          <!-- Checkboxes Container -->
+          <div style="background:var(--color-off-white);padding:var(--space-3);border-radius:var(--radius-sm);border:1px solid var(--border-subtle);max-height:190px;overflow-y:auto;" id="edit-exam-classes-container">
+            <label style="display:flex;align-items:center;gap:var(--space-2);padding:6px 8px;font-weight:600;font-size:var(--text-xs);border-bottom:1px solid var(--border-color);margin-bottom:6px;cursor:pointer;background:#fff;border-radius:var(--radius-sm);">
+              <input type="checkbox" id="edit-exam-class-all" ${isAll ? 'checked' : ''}>
+              <span>All Classes <span class="text-muted font-normal">(Open Campus Examination)</span></span>
+            </label>
+            <div id="edit-exam-specific-classes-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-2);">
+              ${classes.map(c => {
+                const isChecked = !isAll && existingTargets.includes(c.code);
+                return `
+                  <label class="class-card-item" style="display:flex;align-items:center;gap:var(--space-2);padding:6px 8px;font-size:var(--text-xs);cursor:pointer;background:${isChecked ? '#f0fdf4' : '#fff'};border:1px solid ${isChecked ? 'var(--color-green-600)' : 'var(--border-subtle)'};border-radius:var(--radius-sm);transition:all 0.2s ease;">
+                    <input type="checkbox" name="edit-exam-target-class" value="${UI.escapeHtml(c.code)}" class="edit-exam-cls-chk" ${isChecked ? 'checked' : ''}>
+                    <div>
+                      <span class="font-bold mono">Class ${UI.escapeHtml(c.code)}</span>
+                      <div class="text-muted" style="font-size:10px;">${UI.escapeHtml(c.name || 'Class Batch ' + c.code)}</div>
+                    </div>
+                  </label>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Date <span class="required">*</span></label>
+          <input type="date" id="edit-exam-date" class="form-input" required value="${exam.date || ''}">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">
+          <div class="form-group">
+            <label class="form-label">Start Time <span class="required">*</span></label>
+            <input type="time" id="edit-exam-start" class="form-input" value="${exam.startTime || '10:00'}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">End Time <span class="required">*</span></label>
+            <input type="time" id="edit-exam-end" class="form-input" value="${exam.endTime || '13:00'}" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Operational Status</label>
+          <select id="edit-exam-status" class="form-select">
+            <option value="active" ${exam.status === 'active' ? 'selected' : ''}>Active (Ongoing Examination)</option>
+            <option value="scheduled" ${exam.status === 'scheduled' ? 'selected' : ''}>Scheduled</option>
+            <option value="completed" ${exam.status === 'completed' ? 'selected' : ''}>Completed</option>
+          </select>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:var(--space-2);margin-top:var(--space-4);">
+          <button type="button" class="btn btn-secondary" onclick="UI.closeModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Changes</button>
+        </div>
+      </form>
+    `;
+
+    UI.showModal(`Edit Examination: ${exam.title}`, modalHtml);
+
+    // Multi-class Selection & Toggle Logic
+    const chkAll = document.getElementById('edit-exam-class-all');
+    const summaryText = document.getElementById('edit-exam-class-summary-text');
+    const grid = document.getElementById('edit-exam-specific-classes-grid');
+
+    const updateClassSummary = () => {
+      const checkedChks = Array.from(grid.querySelectorAll('.edit-exam-cls-chk:checked'));
+      if (chkAll.checked || checkedChks.length === 0) {
+        chkAll.checked = true;
+        summaryText.innerHTML = `Target: <span class="badge badge-success text-xs">All Classes (Open Campus)</span>`;
+      } else {
+        const codes = checkedChks.map(c => c.value);
+        summaryText.innerHTML = `Target: <span class="badge badge-outline text-xs" style="background:#fff;font-weight:bold;">${codes.length} Classes Selected</span> (${codes.join(', ')})`;
+      }
+
+      grid.querySelectorAll('.class-card-item').forEach(card => {
+        const chk = card.querySelector('.edit-exam-cls-chk');
+        if (chk && chk.checked) {
+          card.style.borderColor = 'var(--color-green-600)';
+          card.style.background = '#f0fdf4';
+        } else {
+          card.style.borderColor = 'var(--border-subtle)';
+          card.style.background = '#fff';
+        }
+      });
+    };
+
+    updateClassSummary();
+
+    chkAll.onchange = () => {
+      if (chkAll.checked) {
+        grid.querySelectorAll('.edit-exam-cls-chk').forEach(c => c.checked = false);
+      }
+      updateClassSummary();
+    };
+
+    const attachEditCheckboxListeners = () => {
+      grid.querySelectorAll('.edit-exam-cls-chk').forEach(chk => {
+        chk.onchange = () => {
+          if (chk.checked) chkAll.checked = false;
+          updateClassSummary();
+        };
+      });
+    };
+    attachEditCheckboxListeners();
+
+    document.getElementById('btn-edit-select-all-classes').onclick = () => {
+      chkAll.checked = false;
+      grid.querySelectorAll('.edit-exam-cls-chk').forEach(c => c.checked = true);
+      updateClassSummary();
+    };
+
+    document.getElementById('btn-edit-clear-classes').onclick = () => {
+      chkAll.checked = true;
+      grid.querySelectorAll('.edit-exam-cls-chk').forEach(c => c.checked = false);
+      updateClassSummary();
+    };
+
+    // Quick Add Class inline
+    const quickPanel = document.getElementById('edit-quick-class-panel');
+    document.getElementById('btn-edit-toggle-quick-class').onclick = () => {
+      quickPanel.style.display = quickPanel.style.display === 'none' ? 'block' : 'none';
+      if (quickPanel.style.display === 'block') {
+        document.getElementById('edit-quick-class-code').focus();
+      }
+    };
+    document.getElementById('btn-edit-close-quick-class').onclick = () => {
+      quickPanel.style.display = 'none';
+    };
+
+    document.getElementById('btn-edit-save-quick-class').onclick = async () => {
+      const codeInput = document.getElementById('edit-quick-class-code');
+      const code = codeInput.value.trim().toUpperCase();
+      if (!code) return;
+
+      await ClassHelper.addClass(code);
+      UI.toast(`Class ${code} registered!`, 'success');
+      codeInput.value = '';
+      quickPanel.style.display = 'none';
+
+      let existingCard = Array.from(grid.querySelectorAll('.edit-exam-cls-chk')).find(c => c.value === code);
+      if (existingCard) {
+        existingCard.checked = true;
+      } else {
+        const newCard = document.createElement('label');
+        newCard.className = 'class-card-item';
+        newCard.style = 'display:flex;align-items:center;gap:var(--space-2);padding:6px 8px;font-size:var(--text-xs);cursor:pointer;background:#f0fdf4;border:1px solid var(--color-green-600);border-radius:var(--radius-sm);';
+        newCard.innerHTML = `
+          <input type="checkbox" name="edit-exam-target-class" value="${UI.escapeHtml(code)}" class="edit-exam-cls-chk" checked>
+          <div>
+            <span class="font-bold mono">Class ${UI.escapeHtml(code)}</span>
+            <div class="text-muted" style="font-size:10px;">Class Batch ${UI.escapeHtml(code)}</div>
+          </div>
+        `;
+        grid.appendChild(newCard);
+        attachEditCheckboxListeners();
+      }
+
+      chkAll.checked = false;
+      updateClassSummary();
+    };
+
+    document.getElementById('edit-exam-form').onsubmit = async (e) => {
+      e.preventDefault();
+
+      let targetClasses = ['all'];
+      if (!chkAll.checked) {
+        const checkedValues = Array.from(grid.querySelectorAll('.edit-exam-cls-chk:checked')).map(c => c.value.trim());
+        if (checkedValues.length > 0) {
+          targetClasses = checkedValues;
+        }
+      }
+
+      const updates = {
+        title: document.getElementById('edit-exam-title').value.trim(),
+        date: document.getElementById('edit-exam-date').value,
+        startTime: document.getElementById('edit-exam-start').value,
+        endTime: document.getElementById('edit-exam-end').value,
+        status: document.getElementById('edit-exam-status').value,
+        targetClasses: targetClasses,
+        updatedAt: DB.serverTimestamp()
+      };
+
+      await Database.update(DB.exam(examId), updates);
+
+      if (updates.status === 'active') {
+        await Database.update(DB.settings(), { activeExamId: examId });
+      }
+
+      UI.closeModal();
+      UI.toast('Examination schedule and target classes updated!', 'success');
+      AdminModule.renderExams();
+    };
+  },
+
+  // Delete Exam
+  deleteExam(examId, title) {
+    UI.confirm(
+      'Delete Examination',
+      `Permanently delete examination "${title}" and its associated room seat allocations?`,
+      async () => {
+        await Database.remove(DB.exam(examId));
+        await Database.remove(DB.assignments(examId));
+        await Database.remove(DB.attendance(examId));
+        UI.toast(`Examination "${title}" deleted`, 'info');
+        AdminModule.renderExams();
+      },
+      'Delete Exam',
+      true
+    );
   },
 
   async setActiveExam(examId) {
@@ -564,8 +992,9 @@ const AdminModule = {
     const users = await Database.getList(DB.users());
     const students = users.filter(u => u.role === 'student');
 
-    // Extract unique classes
-    const classSet = new Set();
+    // Extract unique classes from registered classes and student records
+    const registeredClasses = await ClassHelper.getAllClasses();
+    const classSet = new Set(registeredClasses.map(c => c.code));
     students.forEach(s => {
       if (s.classId) classSet.add(s.classId.trim());
     });
@@ -578,7 +1007,10 @@ const AdminModule = {
             <h2>Candidate Roster & Class Management</h2>
             <div class="page-subtitle">Enrolled students, class cohort assignments, and batch operations (${students.length} total)</div>
           </div>
-          <div style="display:flex;gap:var(--space-2);">
+          <div style="display:flex;gap:var(--space-2);flex-wrap:wrap;">
+            <button class="btn btn-secondary btn-sm" onclick="AdminModule.renderClassManagementModal()">
+              <i data-lucide="layers"></i> Manage Classes
+            </button>
             <button class="btn btn-primary btn-sm" onclick="AdminModule.renderAddStudentModal()">
               <i data-lucide="user-plus"></i> Add Candidate
             </button>
@@ -765,8 +1197,104 @@ const AdminModule = {
     this.updateBulkBar();
   },
 
-  // Modal: Add New Student Candidate
-  renderAddStudentModal() {
+  // Modal: Academic Class & Cohort Management
+  async renderClassManagementModal() {
+    const classes = await ClassHelper.getAllClasses();
+    const users = await Database.getList(DB.users());
+    const students = users.filter(u => u.role === 'student');
+
+    const classCountMap = {};
+    students.forEach(s => {
+      const c = (s.classId || 'UNASSIGNED').trim().toUpperCase();
+      classCountMap[c] = (classCountMap[c] || 0) + 1;
+    });
+
+    const modalHtml = `
+      <div id="class-management-wrapper">
+        <div class="card mb-4" style="background:var(--color-off-white);border:1px solid var(--border-subtle);">
+          <div class="card-body p-3">
+            <h4 class="font-bold text-xs uppercase text-muted mb-2">Create New Academic Class / Cohort</h4>
+            <form id="form-create-class" style="display:grid;grid-template-columns:1fr 1fr auto;gap:var(--space-2);align-items:flex-end;">
+              <div>
+                <label class="form-label text-xs">Class Code <span class="required">*</span></label>
+                <input type="text" id="new-class-code" class="form-input text-xs mono" placeholder="e.g. CS-101, 10-A, 12-BIO" required>
+              </div>
+              <div>
+                <label class="form-label text-xs">Class / Course Title</label>
+                <input type="text" id="new-class-name" class="form-input text-xs" placeholder="e.g. Computer Science Section A">
+              </div>
+              <button type="submit" class="btn btn-primary btn-sm text-xs">
+                <i data-lucide="plus"></i> Add Class
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <div class="table-container" style="max-height:300px;overflow-y:auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Class Code</th>
+                <th>Description / Title</th>
+                <th>Department</th>
+                <th>Enrolled Candidates</th>
+                <th style="text-align:right;">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${classes.map(c => `
+                <tr>
+                  <td class="font-bold mono text-sm" style="color:var(--color-green-700);">${UI.escapeHtml(c.code)}</td>
+                  <td class="font-semibold text-xs">${UI.escapeHtml(c.name || 'Class Batch ' + c.code)}</td>
+                  <td class="text-xs text-muted">${UI.escapeHtml(c.department || 'General Academics')}</td>
+                  <td class="mono font-semibold text-xs">${classCountMap[c.code.toUpperCase()] || 0} Students</td>
+                  <td style="text-align:right;">
+                    <button class="btn btn-ghost btn-sm text-xs" onclick="AdminModule.deleteClass('${c.id}', '${UI.escapeHtml(c.code)}')" style="color:var(--color-critical);">
+                      <i data-lucide="trash-2" style="width:14px;height:14px;"></i>
+                    </button>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+
+    UI.showModal('Academic Class & Cohort Management', modalHtml);
+
+    document.getElementById('form-create-class').onsubmit = async (e) => {
+      e.preventDefault();
+      const code = document.getElementById('new-class-code').value.trim();
+      const name = document.getElementById('new-class-name').value.trim();
+      if (!code) return;
+
+      await ClassHelper.addClass(code, name);
+      UI.toast(`Class ${code.toUpperCase()} registered successfully!`, 'success');
+      UI.closeModal();
+      AdminModule.renderStudents();
+    };
+  },
+
+  deleteClass(id, code) {
+    UI.confirm(
+      'Delete Class',
+      `Delete class "${code}" from available batches? (Existing students assigned to this class will retain their class code).`,
+      async () => {
+        await ClassHelper.removeClass(id);
+        UI.toast(`Class ${code} removed`, 'info');
+        UI.closeModal();
+        AdminModule.renderStudents();
+      },
+      'Delete Class',
+      true
+    );
+  },
+
+  // Modal: Add New Student Candidate with Class Dropdown
+  async renderAddStudentModal() {
+    const classOptionsHtml = await ClassHelper.renderClassOptions('', { allowAdd: true });
+
     const modalHtml = `
       <form id="add-student-form">
         <div class="form-group">
@@ -780,8 +1308,10 @@ const AdminModule = {
             <input type="text" id="add-std-reg" class="form-input text-sm mono" placeholder="e.g. REG2024099" required>
           </div>
           <div class="form-group">
-            <label class="form-label text-xs">Class / Batch Code <span class="required">*</span></label>
-            <input type="text" id="add-std-class" class="form-input text-sm" placeholder="e.g. CS-A" value="CS-A" required>
+            <label class="form-label text-xs">Class / Cohort Batch <span class="required">*</span></label>
+            <select id="add-std-class" class="form-select text-sm" required>
+              ${classOptionsHtml}
+            </select>
           </div>
         </div>
 
@@ -791,7 +1321,7 @@ const AdminModule = {
             <input type="email" id="add-std-email" class="form-input text-sm" placeholder="rahul@examshield.in" required>
           </div>
           <div class="form-group">
-            <label class="form-label text-xs">Contact Phone / WhatsApp</label>
+            <label class="form-label text-xs">Contact Phone Number</label>
             <input type="tel" id="add-std-phone" class="form-input text-sm" placeholder="9876543210">
           </div>
         </div>
@@ -810,6 +1340,24 @@ const AdminModule = {
     `;
 
     UI.showModal('Add Student Candidate', modalHtml);
+
+    // Handle '+ Add New Class...' in dropdown
+    const classSelect = document.getElementById('add-std-class');
+    classSelect.onchange = async () => {
+      if (classSelect.value === '__new__') {
+        const newCode = prompt('Enter new Class Code (e.g. CS-103, 10-C):');
+        if (newCode && newCode.trim()) {
+          const rec = await ClassHelper.addClass(newCode.trim());
+          const newOpt = document.createElement('option');
+          newOpt.value = rec.code;
+          newOpt.textContent = `Class ${rec.code} — ${rec.name}`;
+          newOpt.selected = true;
+          classSelect.insertBefore(newOpt, classSelect.lastElementChild);
+        } else {
+          classSelect.value = '';
+        }
+      }
+    };
 
     document.getElementById('add-student-form').onsubmit = async (e) => {
       e.preventDefault();
@@ -856,10 +1404,12 @@ const AdminModule = {
     };
   },
 
-  // Modal: Edit Student
+  // Modal: Edit Student with Dynamic Class Dropdown
   async renderEditStudentModal(uid) {
     const student = await Database.get(DB.user(uid));
     if (!student) return;
+
+    const classOptionsHtml = await ClassHelper.renderClassOptions(student.classId || '', { allowAdd: true });
 
     const modalHtml = `
       <form id="edit-student-form">
@@ -874,8 +1424,10 @@ const AdminModule = {
             <input type="text" id="edit-std-reg" class="form-input text-sm mono" value="${UI.escapeHtml(student.registerNumber || '')}" required>
           </div>
           <div class="form-group">
-            <label class="form-label text-xs">Class / Batch Code <span class="required">*</span></label>
-            <input type="text" id="edit-std-class" class="form-input text-sm" value="${UI.escapeHtml(student.classId || 'CS-A')}" required>
+            <label class="form-label text-xs">Class / Cohort Batch <span class="required">*</span></label>
+            <select id="edit-std-class" class="form-select text-sm" required>
+              ${classOptionsHtml}
+            </select>
           </div>
         </div>
 
@@ -906,6 +1458,24 @@ const AdminModule = {
     `;
 
     UI.showModal(`Edit Candidate: ${student.name}`, modalHtml);
+
+    // Handle '+ Add New Class...' in dropdown
+    const classSelect = document.getElementById('edit-std-class');
+    classSelect.onchange = async () => {
+      if (classSelect.value === '__new__') {
+        const newCode = prompt('Enter new Class Code (e.g. CS-103, 10-C):');
+        if (newCode && newCode.trim()) {
+          const rec = await ClassHelper.addClass(newCode.trim());
+          const newOpt = document.createElement('option');
+          newOpt.value = rec.code;
+          newOpt.textContent = `Class ${rec.code} — ${rec.name}`;
+          newOpt.selected = true;
+          classSelect.insertBefore(newOpt, classSelect.lastElementChild);
+        } else {
+          classSelect.value = student.classId || '';
+        }
+      }
+    };
 
     document.getElementById('edit-student-form').onsubmit = async (e) => {
       e.preventDefault();
@@ -968,20 +1538,24 @@ const AdminModule = {
     );
   },
 
-  // Bulk Modal: Assign multiple candidates to Class Batch
-  openBulkAssignClassModal() {
+  // Bulk Modal: Assign multiple candidates to Class Batch using Dropdown
+  async openBulkAssignClassModal() {
     const selectedCount = this.selectedStudentUids.size;
     if (!selectedCount) return;
+
+    const classOptionsHtml = await ClassHelper.renderClassOptions('', { placeholder: '-- Select Target Class Batch --' });
 
     const modalHtml = `
       <form id="bulk-assign-class-form">
         <p class="text-xs text-muted mb-3">
-          Update the class/batch assignment for <strong>${selectedCount} selected candidate(s)</strong>:
+          Select target class to assign to <strong>${selectedCount} selected candidate(s)</strong>:
         </p>
 
         <div class="form-group">
           <label class="form-label text-xs">Target Class Batch <span class="required">*</span></label>
-          <input type="text" id="bulk-target-class" class="form-input text-sm" placeholder="e.g. CS-A, CS-B, EC-A" value="CS-A" required>
+          <select id="bulk-target-class" class="form-select text-sm" required>
+            ${classOptionsHtml}
+          </select>
         </div>
 
         <div style="display:flex;justify-content:flex-end;gap:var(--space-2);margin-top:var(--space-4);">
@@ -1103,11 +1677,6 @@ const AdminModule = {
                             <button class="btn btn-secondary btn-sm" onclick="AdminModule.copyInviteLink('${inviteUrl}')" title="Copy invitation link">
                               <i data-lucide="copy" style="width:12px;height:12px;"></i> Copy Link
                             </button>
-                            ${inv.phone ? `
-                              <button class="btn btn-secondary btn-sm" onclick="AdminModule.sendInviteWhatsApp('${inv.phone}', '${UI.escapeHtml(inv.name)}', '${inviteUrl}')" title="Send via WhatsApp">
-                                <i data-lucide="message-circle" style="width:12px;height:12px;color:var(--color-green-600);"></i> WhatsApp
-                              </button>
-                            ` : ''}
                             <button class="btn btn-ghost btn-sm" style="color:var(--color-critical);" onclick="AdminModule.revokeInvitation('${inv.id}')" title="Revoke">
                               <i data-lucide="x" style="width:12px;height:12px;"></i>
                             </button>
@@ -1222,7 +1791,7 @@ const AdminModule = {
             <input type="email" id="inv-email" class="form-input text-sm" placeholder="sarah@university.edu" required>
           </div>
           <div class="form-group">
-            <label class="form-label text-xs">Phone / WhatsApp Number</label>
+            <label class="form-label text-xs">Phone Number</label>
             <input type="tel" id="inv-phone" class="form-input text-sm" placeholder="e.g. +91 9876543210">
           </div>
         </div>
@@ -1318,14 +1887,9 @@ const AdminModule = {
                   ${inviteUrl}
                 </div>
                 <div style="display:flex;gap:var(--space-2);justify-content:flex-end;">
-                  <button class="btn btn-secondary btn-sm" onclick="AdminModule.copyInviteLink('${inviteUrl}')">
-                    <i data-lucide="copy"></i> Copy Link
+                  <button class="btn btn-primary btn-sm" onclick="AdminModule.copyInviteLink('${inviteUrl}')">
+                    <i data-lucide="copy"></i> Copy Onboarding Link
                   </button>
-                  ${phone ? `
-                    <button class="btn btn-primary btn-sm" onclick="AdminModule.sendInviteWhatsApp('${phone}', '${UI.escapeHtml(name)}', '${inviteUrl}')">
-                      <i data-lucide="message-circle"></i> Send on WhatsApp
-                    </button>
-                  ` : ''}
                 </div>
               </div>
             `
@@ -1386,11 +1950,6 @@ const AdminModule = {
     } else {
       prompt('Copy invitation link:', url);
     }
-  },
-
-  sendInviteWhatsApp(phone, name, inviteUrl) {
-    const msg = `Hello ${name}, you have been appointed as an official Invigilator on ExamShield. Please complete your registration and set your password using this secure link: ${inviteUrl}`;
-    WhatsAppHelper.openWhatsApp(phone, msg, name);
   },
 
   async revokeInvitation(inviteId) {
@@ -1552,6 +2111,11 @@ const AdminModule = {
               <i data-lucide="zap"></i> Auto-Allocate Unassigned
             </button>
           </div>
+          <!-- Designated Target Classes Banner -->
+          <div id="alloc-exam-target-info" class="mt-3 p-2 text-xs" style="background:var(--color-off-white);border-radius:var(--radius-sm);border:1px solid var(--border-color);display:flex;align-items:center;gap:var(--space-2);">
+            <i data-lucide="layers" style="width:14px;height:14px;color:var(--color-green-600);"></i>
+            <span id="alloc-target-classes-text" class="text-muted">Loading target batches...</span>
+          </div>
         </div>
       </div>
 
@@ -1570,10 +2134,23 @@ const AdminModule = {
     const examSelect = document.getElementById('alloc-exam-select');
     const roomSelect = document.getElementById('alloc-room-select');
     const tableContainer = document.getElementById('alloc-table-container');
+    const targetClassesText = document.getElementById('alloc-target-classes-text');
 
     const loadAllocations = async () => {
       const exId = examSelect.value;
       const rmId = roomSelect.value;
+      const exam = exams.find(e => e.id === exId) || {};
+      const targetClasses = Array.isArray(exam.targetClasses) ? exam.targetClasses : [];
+      const isRestricted = targetClasses.length > 0 && !targetClasses.includes('all');
+
+      if (targetClassesText) {
+        if (isRestricted) {
+          targetClassesText.innerHTML = `<strong>Restricted Examination:</strong> Seat allocation is strictly limited to candidates in class/batch: <span class="badge badge-outline text-xs" style="background:#fff;margin-left:4px;">${targetClasses.map(c => UI.escapeHtml(c)).join('</span> <span class="badge badge-outline text-xs" style="background:#fff;">')}</span>`;
+        } else {
+          targetClassesText.innerHTML = `<strong>Open Campus Examination:</strong> Eligible for candidates from <em>All Classes / Batches</em>.`;
+        }
+      }
+
       const asgns = await Database.get(DB.assignments(exId)) || {};
       const users = await Database.getList(DB.users());
       const userMap = new Map(users.map(u => [u.id, u]));
@@ -1595,6 +2172,7 @@ const AdminModule = {
               <tr>
                 <th>Seat Desk</th>
                 <th>Candidate Name</th>
+                <th>Class / Batch</th>
                 <th>Register Number</th>
                 <th>QR Pass Token</th>
                 <th>Allocation State</th>
@@ -1603,10 +2181,12 @@ const AdminModule = {
             <tbody>
               ${roomAsgns.map(a => {
         const s = userMap.get(a.studentId) || {};
+        const sClass = s.classId || s.class || '—';
         return `
                   <tr>
                     <td class="font-bold mono text-sm" style="color:var(--color-green-600);">${UI.escapeHtml(a.seatNumber)}</td>
                     <td class="font-semibold">${UI.escapeHtml(s.name || 'Candidate')}</td>
+                    <td><span class="badge badge-outline text-xs">${UI.escapeHtml(sClass)}</span></td>
                     <td class="mono text-xs">${UI.escapeHtml(a.registerNumber || s.registerNumber || '—')}</td>
                     <td class="mono text-xs text-muted">${UI.escapeHtml((a.qrToken || '').substring(0, 16))}...</td>
                     <td><span class="badge badge-success">Assigned</span></td>
@@ -1630,15 +2210,33 @@ const AdminModule = {
       const room = rooms.find(r => r.id === rmId);
       if (!room) return;
 
+      const exam = exams.find(e => e.id === exId) || {};
+      const targetClasses = Array.isArray(exam.targetClasses) ? exam.targetClasses : [];
+      const isRestricted = targetClasses.length > 0 && !targetClasses.includes('all');
+
       const users = await Database.getList(DB.users());
       const students = users.filter(u => u.role === 'student');
-      const existingAsgns = await Database.get(DB.assignments(exId)) || {};
 
+      let eligibleStudents = students;
+      if (isRestricted) {
+        const allowedUpper = targetClasses.map(c => String(c).trim().toUpperCase());
+        eligibleStudents = students.filter(s => {
+          const sClass = String(s.classId || s.class || '').trim().toUpperCase();
+          return sClass && allowedUpper.includes(sClass);
+        });
+      }
+
+      if (!eligibleStudents.length) {
+        UI.toast(`No candidates found registered in designated target classes (${targetClasses.join(', ')}).`, 'warning');
+        return;
+      }
+
+      const existingAsgns = await Database.get(DB.assignments(exId)) || {};
       const assignedStudentIds = new Set(Object.values(existingAsgns).map(a => a.studentId));
-      const unassignedStudents = students.filter(s => !assignedStudentIds.has(s.id));
+      const unassignedStudents = eligibleStudents.filter(s => !assignedStudentIds.has(s.id));
 
       if (!unassignedStudents.length) {
-        UI.toast('All registered students already possess seat allocations!', 'info');
+        UI.toast(`All candidates in designated target classes (${isRestricted ? targetClasses.join(', ') : 'all classes'}) already possess seat allocations!`, 'info');
         return;
       }
 
@@ -1661,9 +2259,10 @@ const AdminModule = {
       }
 
       const countToAllocate = Math.min(unassignedStudents.length, freeSeats.length);
+      const classInfoLabel = isRestricted ? `target classes: ${targetClasses.join(', ')}` : 'all classes';
       UI.confirm(
         'Confirm Auto-Allocation',
-        `Allocate ${countToAllocate} unassigned candidates to Room ${room.name}? QR tokens will be generated automatically.`,
+        `Allocate ${countToAllocate} unassigned candidates (${classInfoLabel}) to Room ${room.name}? QR tokens will be generated automatically.`,
         async () => {
           const updates = {};
           for (let i = 0; i < countToAllocate; i++) {

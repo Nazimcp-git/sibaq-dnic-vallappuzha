@@ -51,6 +51,8 @@ const DB = {
   importLogs: () => db.ref('examshield/importLogs'),
   invitations: () => db.ref('examshield/invitations'),
   invitation: (id) => db.ref('examshield/invitations/' + id),
+  classes: () => db.ref('examshield/classes'),
+  classItem: (id) => db.ref('examshield/classes/' + id),
   settings: () => db.ref('examshield/settings'),
   serverTimestamp: () => firebase.database.ServerValue.TIMESTAMP
 };
