@@ -11,6 +11,9 @@ const StudentModule = {
       case 'seat-finder':
         await this.renderSeatFinder();
         break;
+      case 'campus-map':
+        await this.renderCampusMapView();
+        break;
       case 'qr-pass':
         await this.renderQRPass();
         break;
@@ -25,6 +28,9 @@ const StudentModule = {
         break;
       case 'announcements':
         await this.renderAnnouncements();
+        break;
+      case 'profile':
+        await this.renderProfile();
         break;
       default:
         await this.renderDashboard();
@@ -131,6 +137,9 @@ const StudentModule = {
         </div>
       ` : ''}
 
+      <!-- Live Examination Countdown Ticker -->
+      <div id="student-dashboard-countdown"></div>
+
       <!-- Quick Action Cards Grid -->
       <div class="stats-grid">
         <div class="stat-card stat-info" style="cursor:pointer;" onclick="Router.navigate('student/seat-finder')">
@@ -198,6 +207,9 @@ const StudentModule = {
               <button class="btn btn-secondary btn-sm" onclick="Router.navigate('student/seat-finder')">
                 <i data-lucide="map-pin"></i> Seat Locator
               </button>
+              <button class="btn btn-secondary btn-sm" onclick="Router.navigate('student/campus-map')">
+                <i data-lucide="map"></i> Campus Map
+              </button>
               <button class="btn btn-danger btn-sm" onclick="Router.navigate('student/help-desk')">
                 <i data-lucide="life-buoy"></i> Emergency Report
               </button>
@@ -225,6 +237,11 @@ const StudentModule = {
     `;
 
     UI.renderPage(html);
+
+    // Initialize real-time exam countdown ticker
+    if (exam && typeof ExamCountdown !== 'undefined') {
+      ExamCountdown.render('student-dashboard-countdown', exam);
+    }
   },
 
   // 2. Smart Seat Finder View
@@ -237,6 +254,9 @@ const StudentModule = {
         <h2>Smart Seat Finder</h2>
         <div class="page-subtitle">Locate your physical examination desk and assigned room</div>
       </div>
+
+      <!-- Live Exam Countdown Ticker -->
+      <div id="student-seatfinder-countdown"></div>
 
       <!-- Quick Register Number Search Fallback -->
       <div class="card mb-6">
@@ -258,6 +278,22 @@ const StudentModule = {
     `;
 
     UI.renderPage(html);
+
+    // Initialize Countdown Ticker
+    if (exam && typeof ExamCountdown !== 'undefined') {
+      ExamCountdown.render('student-seatfinder-countdown', exam);
+    }
+
+    // Initialize Embedded Campus Map with assigned room highlighted
+    if (assignment && assignment.roomId && typeof CampusMap !== 'undefined') {
+      const mapContainer = document.getElementById('seatfinder-campus-map-embed');
+      if (mapContainer) {
+        CampusMap.render(mapContainer, {
+          highlightRoomId: assignment.roomId,
+          canInspect: false
+        });
+      }
+    }
 
     // Search handler
     document.getElementById('btn-search-seat').onclick = async () => {
@@ -301,6 +337,16 @@ const StudentModule = {
 
       container.innerHTML = StudentModule.renderSeatCardHtml(foundAsgn, studentUser, fExam, fRoom, fInvig);
       lucide.createIcons({ nodes: [container] });
+
+      if (foundAsgn.roomId && typeof CampusMap !== 'undefined') {
+        const mapContainer = document.getElementById('seatfinder-campus-map-embed');
+        if (mapContainer) {
+          CampusMap.render(mapContainer, {
+            highlightRoomId: foundAsgn.roomId,
+            canInspect: false
+          });
+        }
+      }
     };
   },
 
@@ -375,6 +421,20 @@ const StudentModule = {
               </div>
             </div>
           ` : ''}
+
+          <!-- Interactive Campus Wayfinding & Venue Map Section -->
+          <div style="border-top:1px solid var(--border-color);padding-top:var(--space-4);margin-top:var(--space-4);">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-3);flex-wrap:wrap;gap:var(--space-2);">
+              <div>
+                <h4 class="font-bold text-sm">Campus Wayfinding & Navigation Route</h4>
+                <div class="text-xs text-muted">Direct walking trail from Main Entrance Gate to Room ${UI.escapeHtml(room ? room.name : assignment.roomId)}</div>
+              </div>
+              <button class="btn btn-secondary btn-sm text-xs" onclick="CampusMap.openModal('${assignment.roomId}')">
+                <i data-lucide="maximize-2"></i> Fullscreen Campus Map
+              </button>
+            </div>
+            <div id="seatfinder-campus-map-embed"></div>
+          </div>
         </div>
       </div>
     `;
@@ -706,6 +766,165 @@ const StudentModule = {
     ActiveListeners.add(unsub);
   },
 
+  // 8. Candidate Profile View
+  async renderProfile() {
+    const ctx = await this.getStudentContext();
+    const { studentUser, assignment, room, exam } = ctx;
+    const uid = Auth.getUid();
+
+    const html = `
+      <div class="page-header">
+        <h2>Candidate Profile</h2>
+        <div class="page-subtitle">Manage your examination records, emergency contacts, and medical alert notes</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr;gap:var(--space-6);" class="lg:grid-cols-3">
+        <!-- Profile Identity Card -->
+        <div class="card">
+          <div class="card-body text-center" style="padding:var(--space-6) var(--space-4);">
+            <div style="width:72px;height:72px;border-radius:50%;background:var(--color-green-100);color:var(--color-green-600);display:flex;align-items:center;justify-content:center;margin:0 auto var(--space-3);font-size:1.75rem;font-weight:700;">
+              ${Auth.getUserInitials()}
+            </div>
+            <h3 class="font-bold text-lg text-dark mb-1">${UI.escapeHtml(studentUser.name || 'Candidate')}</h3>
+            <div class="text-xs text-muted mono mb-2">${UI.escapeHtml(studentUser.registerNumber || 'REG-PENDING')}</div>
+            <div>
+              <span class="badge badge-success text-xs uppercase font-bold">Verified Candidate</span>
+            </div>
+
+            <div style="border-top:1px solid var(--border-color);margin-top:var(--space-4);padding-top:var(--space-4);text-align:left;display:flex;flex-direction:column;gap:var(--space-2);font-size:var(--text-xs);">
+              <div style="display:flex;justify-content:space-between;">
+                <span class="text-muted">Batch Class</span>
+                <span class="font-semibold">${UI.escapeHtml(studentUser.classId || 'CS-A')}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;">
+                <span class="text-muted">Current Room</span>
+                <span class="font-semibold">${UI.escapeHtml(room ? room.name : (assignment ? assignment.roomId : 'Unassigned'))}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;">
+                <span class="text-muted">Seat Desk</span>
+                <span class="mono font-bold" style="color:var(--color-green-600);">${UI.escapeHtml(assignment ? assignment.seatNumber : '—')}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;">
+                <span class="text-muted">Active Paper</span>
+                <span class="font-medium">${UI.escapeHtml(exam ? exam.title : 'CS301')}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Editable Profile & Emergency Health Settings -->
+        <div class="card lg:col-span-2">
+          <div class="card-header">
+            <h3 class="card-title">Candidate Information & Emergency Details</h3>
+          </div>
+          <div class="card-body">
+            <form id="student-profile-form">
+              <h4 class="font-bold text-xs uppercase text-muted mb-3" style="letter-spacing:0.05em;">1. Academic & Identification</h4>
+              
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">
+                <div class="form-group">
+                  <label class="form-label text-xs">Full Legal Name <span class="required">*</span></label>
+                  <input type="text" id="prof-name" class="form-input text-sm" value="${UI.escapeHtml(studentUser.name || '')}" required>
+                </div>
+                <div class="form-group">
+                  <label class="form-label text-xs">Register Number</label>
+                  <input type="text" class="form-input text-sm mono bg-gray-100" value="${UI.escapeHtml(studentUser.registerNumber || '')}" readonly disabled>
+                </div>
+              </div>
+
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">
+                <div class="form-group">
+                  <label class="form-label text-xs">Official Email Address</label>
+                  <input type="email" class="form-input text-sm bg-gray-100" value="${UI.escapeHtml(studentUser.email || '')}" readonly disabled>
+                </div>
+                <div class="form-group">
+                  <label class="form-label text-xs">Contact Mobile / WhatsApp Phone</label>
+                  <input type="tel" id="prof-phone" class="form-input text-sm" placeholder="e.g. +91 9876543210" value="${UI.escapeHtml(studentUser.phone || '')}">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label text-xs">Class / Section Code</label>
+                <input type="text" id="prof-class" class="form-input text-sm" value="${UI.escapeHtml(studentUser.classId || 'CS-A')}">
+              </div>
+
+              <div style="border-top:1px solid var(--border-color);margin:var(--space-5) 0 var(--space-4);padding-top:var(--space-4);">
+                <h4 class="font-bold text-xs uppercase text-muted mb-3" style="letter-spacing:0.05em;">2. Emergency Health & Safety Notes</h4>
+                <p class="text-xs text-muted mb-4">
+                  These critical notes are immediately disclosed to your supervising room invigilator and on-site medical responders in the event of an emergency.
+                </p>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">
+                  <div class="form-group">
+                    <label class="form-label text-xs">Emergency Contact Person</label>
+                    <input type="text" id="prof-emg-name" class="form-input text-sm" placeholder="e.g. Suresh Sharma (Father / Guardian)" value="${UI.escapeHtml(studentUser.emergencyContactName || '')}">
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label text-xs">Emergency Contact Phone Number</label>
+                    <input type="tel" id="prof-emg-phone" class="form-input text-sm" placeholder="e.g. +91 9876500000" value="${UI.escapeHtml(studentUser.emergencyContactPhone || '')}">
+                  </div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:1fr 2fr;gap:var(--space-3);">
+                  <div class="form-group">
+                    <label class="form-label text-xs">Blood Group</label>
+                    <select id="prof-blood" class="form-select text-sm">
+                      <option value="">Select...</option>
+                      ${['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'].map(bg => `<option value="${bg}" ${studentUser.bloodGroup === bg ? 'selected' : ''}>${bg}</option>`).join('')}
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label text-xs">Medical Conditions / Allergies / Notes</label>
+                    <input type="text" id="prof-medical" class="form-input text-sm" placeholder="e.g. Diabetic, Asthma (inhaler with candidate), Peanut Allergy" value="${UI.escapeHtml(studentUser.medicalNotes || '')}">
+                  </div>
+                </div>
+              </div>
+
+              <div style="display:flex;justify-content:flex-end;">
+                <button type="submit" class="btn btn-primary" id="btn-save-profile">
+                  <i data-lucide="check"></i> Save Profile Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    `;
+
+    UI.renderPage(html);
+
+    document.getElementById('student-profile-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('btn-save-profile');
+      UI.setLoading(btn, true);
+
+      try {
+        const updates = {
+          name: document.getElementById('prof-name').value.trim(),
+          phone: document.getElementById('prof-phone').value.trim(),
+          classId: document.getElementById('prof-class').value.trim(),
+          emergencyContactName: document.getElementById('prof-emg-name').value.trim(),
+          emergencyContactPhone: document.getElementById('prof-emg-phone').value.trim(),
+          bloodGroup: document.getElementById('prof-blood').value,
+          medicalNotes: document.getElementById('prof-medical').value.trim(),
+          updatedAt: DB.serverTimestamp()
+        };
+
+        await Database.update(DB.user(uid), updates);
+
+        // Update local memory
+        Auth.currentUserData = { ...Auth.currentUserData, ...updates };
+
+        UI.toast('Profile details updated successfully', 'success');
+      } catch (err) {
+        console.error('[Profile] Update error:', err);
+        UI.toast('Failed to save profile: ' + err.message, 'error');
+      } finally {
+        UI.setLoading(btn, false);
+      }
+    };
+  },
+
   // 7. Announcements View
   async renderAnnouncements() {
     const ctx = await this.getStudentContext();
@@ -737,6 +956,200 @@ const StudentModule = {
     });
 
     ActiveListeners.add(unsub);
+  },
+
+  // 8. Candidate Profile View
+  async renderProfile() {
+    const ctx = await this.getStudentContext();
+    const { studentUser, assignment, room, exam } = ctx;
+    const uid = Auth.getUid();
+
+    const html = `
+      <div class="page-header">
+        <h2>Candidate Profile</h2>
+        <div class="page-subtitle">Manage your examination records, emergency contacts, and medical alert notes</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr;gap:var(--space-6);" class="lg:grid-cols-3">
+        <!-- Profile Identity Card -->
+        <div class="card">
+          <div class="card-body text-center" style="padding:var(--space-6) var(--space-4);">
+            <div style="width:72px;height:72px;border-radius:50%;background:var(--color-green-100);color:var(--color-green-600);display:flex;align-items:center;justify-content:center;margin:0 auto var(--space-3);font-size:1.75rem;font-weight:700;">
+              ${Auth.getUserInitials()}
+            </div>
+            <h3 class="font-bold text-lg text-dark mb-1">${UI.escapeHtml(studentUser.name || 'Candidate')}</h3>
+            <div class="text-xs text-muted mono mb-2">${UI.escapeHtml(studentUser.registerNumber || 'REG-PENDING')}</div>
+            <div>
+              <span class="badge badge-success text-xs uppercase font-bold">Verified Candidate</span>
+            </div>
+
+            <div style="border-top:1px solid var(--border-color);margin-top:var(--space-4);padding-top:var(--space-4);text-align:left;display:flex;flex-direction:column;gap:var(--space-2);font-size:var(--text-xs);">
+              <div style="display:flex;justify-content:space-between;">
+                <span class="text-muted">Batch Class</span>
+                <span class="font-semibold">${UI.escapeHtml(studentUser.classId || 'CS-A')}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;">
+                <span class="text-muted">Current Room</span>
+                <span class="font-semibold">${UI.escapeHtml(room ? room.name : (assignment ? assignment.roomId : 'Unassigned'))}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;">
+                <span class="text-muted">Seat Desk</span>
+                <span class="mono font-bold" style="color:var(--color-green-600);">${UI.escapeHtml(assignment ? assignment.seatNumber : '—')}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;">
+                <span class="text-muted">Active Paper</span>
+                <span class="font-medium">${UI.escapeHtml(exam ? exam.title : 'CS301')}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Editable Profile & Emergency Health Settings -->
+        <div class="card lg:col-span-2">
+          <div class="card-header">
+            <h3 class="card-title">Candidate Information & Emergency Details</h3>
+          </div>
+          <div class="card-body">
+            <form id="student-profile-form">
+              <h4 class="font-bold text-xs uppercase text-muted mb-3" style="letter-spacing:0.05em;">1. Academic & Identification</h4>
+              
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">
+                <div class="form-group">
+                  <label class="form-label text-xs">Full Legal Name <span class="required">*</span></label>
+                  <input type="text" id="prof-name" class="form-input text-sm" value="${UI.escapeHtml(studentUser.name || '')}" required>
+                </div>
+                <div class="form-group">
+                  <label class="form-label text-xs">Register Number</label>
+                  <input type="text" class="form-input text-sm mono bg-gray-100" value="${UI.escapeHtml(studentUser.registerNumber || '')}" readonly disabled>
+                </div>
+              </div>
+
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">
+                <div class="form-group">
+                  <label class="form-label text-xs">Official Email Address</label>
+                  <input type="email" class="form-input text-sm bg-gray-100" value="${UI.escapeHtml(studentUser.email || '')}" readonly disabled>
+                </div>
+                <div class="form-group">
+                  <label class="form-label text-xs">Contact Mobile / WhatsApp Phone</label>
+                  <input type="tel" id="prof-phone" class="form-input text-sm" placeholder="e.g. +91 9876543210" value="${UI.escapeHtml(studentUser.phone || '')}">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label text-xs">Class / Section Code</label>
+                <input type="text" id="prof-class" class="form-input text-sm" value="${UI.escapeHtml(studentUser.classId || 'CS-A')}">
+              </div>
+
+              <div style="border-top:1px solid var(--border-color);margin:var(--space-5) 0 var(--space-4);padding-top:var(--space-4);">
+                <h4 class="font-bold text-xs uppercase text-muted mb-3" style="letter-spacing:0.05em;">2. Emergency Health & Safety Notes</h4>
+                <p class="text-xs text-muted mb-4">
+                  These critical notes are immediately disclosed to your supervising room invigilator and on-site medical responders in the event of an emergency.
+                </p>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">
+                  <div class="form-group">
+                    <label class="form-label text-xs">Emergency Contact Person</label>
+                    <input type="text" id="prof-emg-name" class="form-input text-sm" placeholder="e.g. Suresh Sharma (Father / Guardian)" value="${UI.escapeHtml(studentUser.emergencyContactName || '')}">
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label text-xs">Emergency Contact Phone Number</label>
+                    <input type="tel" id="prof-emg-phone" class="form-input text-sm" placeholder="e.g. +91 9876500000" value="${UI.escapeHtml(studentUser.emergencyContactPhone || '')}">
+                  </div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:1fr 2fr;gap:var(--space-3);">
+                  <div class="form-group">
+                    <label class="form-label text-xs">Blood Group</label>
+                    <select id="prof-blood" class="form-select text-sm">
+                      <option value="">Select...</option>
+                      ${['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'].map(bg => `<option value="${bg}" ${studentUser.bloodGroup === bg ? 'selected' : ''}>${bg}</option>`).join('')}
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label text-xs">Medical Conditions / Allergies / Notes</label>
+                    <input type="text" id="prof-medical" class="form-input text-sm" placeholder="e.g. Diabetic, Asthma (inhaler with candidate), Peanut Allergy" value="${UI.escapeHtml(studentUser.medicalNotes || '')}">
+                  </div>
+                </div>
+              </div>
+
+              <div style="display:flex;justify-content:flex-end;">
+                <button type="submit" class="btn btn-primary" id="btn-save-profile">
+                  <i data-lucide="check"></i> Save Profile Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    `;
+
+    UI.renderPage(html);
+
+    document.getElementById('student-profile-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('btn-save-profile');
+      UI.setLoading(btn, true);
+
+      try {
+        const updates = {
+          name: document.getElementById('prof-name').value.trim(),
+          phone: document.getElementById('prof-phone').value.trim(),
+          classId: document.getElementById('prof-class').value.trim(),
+          emergencyContactName: document.getElementById('prof-emg-name').value.trim(),
+          emergencyContactPhone: document.getElementById('prof-emg-phone').value.trim(),
+          bloodGroup: document.getElementById('prof-blood').value,
+          medicalNotes: document.getElementById('prof-medical').value.trim(),
+          updatedAt: DB.serverTimestamp()
+        };
+
+        await Database.update(DB.user(uid), updates);
+
+        // Update local memory
+        Auth.currentUserData = { ...Auth.currentUserData, ...updates };
+
+        UI.toast('Profile details updated successfully', 'success');
+      } catch (err) {
+        console.error('[Profile] Update error:', err);
+        UI.toast('Failed to save profile: ' + err.message, 'error');
+      } finally {
+        UI.setLoading(btn, false);
+      }
+    };
+  },
+
+  // 9. Interactive Campus Map & Wayfinding View for Candidates
+  async renderCampusMapView() {
+    const ctx = await this.getStudentContext();
+    const { assignment, room } = ctx;
+    const highlightRoomId = assignment ? assignment.roomId : null;
+
+    const html = `
+      <div class="page-header">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:var(--space-2);">
+          <div>
+            <h2>Campus Map & Examination Wayfinding</h2>
+            <div class="page-subtitle">Interactive spatial guide to examination venues, academic blocks, medical station, and entrance gates</div>
+          </div>
+          ${highlightRoomId ? `
+            <button class="btn btn-primary btn-sm" onclick="CampusMap.render('student-full-campus-map', { highlightRoomId: '${highlightRoomId}', canInspect: false })">
+              <i data-lucide="crosshair"></i> Focus My Assigned Room (${UI.escapeHtml(room ? room.name : highlightRoomId)})
+            </button>
+          ` : ''}
+        </div>
+      </div>
+
+      <div class="card mb-6">
+        <div class="card-body p-0" id="student-full-campus-map">
+          <!-- Rendered by CampusMap -->
+        </div>
+      </div>
+    `;
+
+    UI.renderPage(html);
+    await CampusMap.render(document.getElementById('student-full-campus-map'), {
+      highlightRoomId,
+      canInspect: false
+    });
   }
 };
 

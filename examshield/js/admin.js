@@ -173,9 +173,9 @@ const AdminModule = {
         overviewContainer.innerHTML = `
           <div style="display:flex;flex-direction:column;gap:var(--space-3);">
             ${roomsList.map(rm => {
-              const cl = checklists[rm.id] || {};
-              const score = ReadinessCalc.calculate(cl);
-              return `
+          const cl = checklists[rm.id] || {};
+          const score = ReadinessCalc.calculate(cl);
+          return `
                 <div style="display:flex;justify-content:space-between;align-items:center;padding:var(--space-2) 0;border-bottom:1px solid var(--border-subtle);">
                   <div>
                     <span class="font-bold text-sm">Room ${UI.escapeHtml(rm.name)}</span>
@@ -192,7 +192,7 @@ const AdminModule = {
                   </div>
                 </div>
               `;
-            }).join('')}
+        }).join('')}
           </div>
         `;
       }
@@ -292,8 +292,8 @@ const AdminModule = {
                 <td>${UI.statusBadge(ex.status || 'scheduled')}</td>
                 <td>
                   ${ex.id === activeExamId
-                    ? '<span class="badge badge-success">ACTIVE SESSION</span>'
-                    : `<button class="btn btn-secondary btn-sm" onclick="AdminModule.setActiveExam('${ex.id}')">Make Active</button>`}
+        ? '<span class="badge badge-success">ACTIVE SESSION</span>'
+        : `<button class="btn btn-secondary btn-sm" onclick="AdminModule.setActiveExam('${ex.id}')">Make Active</button>`}
                 </td>
                 <td style="text-align:right;">
                   <button class="btn btn-ghost btn-sm" onclick="AdminModule.renderEditExamModal('${ex.id}')">
@@ -555,50 +555,96 @@ const AdminModule = {
     };
   },
 
-  // 4. Student Management View
+  // 4. Student Management View (Full CRUD, Class Assignment, Bulk Actions)
+  selectedStudentUids: new Set(),
+  activeStudentClassFilter: 'all',
+
   async renderStudents() {
+    this.selectedStudentUids.clear();
     const users = await Database.getList(DB.users());
     const students = users.filter(u => u.role === 'student');
 
+    // Extract unique classes
+    const classSet = new Set();
+    students.forEach(s => {
+      if (s.classId) classSet.add(s.classId.trim());
+    });
+    const classes = Array.from(classSet).sort();
+
     const html = `
       <div class="page-header">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:var(--space-2);">
           <div>
-            <h2>Candidate Roster</h2>
-            <div class="page-subtitle">Enrolled students eligible for examination sitting</div>
+            <h2>Candidate Roster & Class Management</h2>
+            <div class="page-subtitle">Enrolled students, class cohort assignments, and batch operations (${students.length} total)</div>
           </div>
-          <button class="btn btn-secondary btn-sm" onclick="Router.navigate('admin/import')">
-            <i data-lucide="upload"></i> Bulk CSV Import
+          <div style="display:flex;gap:var(--space-2);">
+            <button class="btn btn-primary btn-sm" onclick="AdminModule.renderAddStudentModal()">
+              <i data-lucide="user-plus"></i> Add Candidate
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="Router.navigate('admin/import')">
+              <i data-lucide="upload"></i> Bulk CSV Import
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Class Batch Filter Chips -->
+      <div class="filter-bar mb-4">
+        <button class="filter-chip ${this.activeStudentClassFilter === 'all' ? 'active' : ''}" data-class="all">
+          All Candidates (${students.length})
+        </button>
+        ${classes.map(c => `
+          <button class="filter-chip ${this.activeStudentClassFilter === c ? 'active' : ''}" data-class="${UI.escapeHtml(c)}">
+            Class ${UI.escapeHtml(c)} (${students.filter(s => s.classId === c).length})
           </button>
+        `).join('')}
+      </div>
+
+      <!-- Bulk Actions Bar (Sticky & Dynamic) -->
+      <div id="student-bulk-bar" class="card mb-4" style="display:none;background:var(--color-charcoal);color:white;border:none;">
+        <div class="card-body" style="padding:var(--space-3) var(--space-4);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:var(--space-3);">
+          <div style="display:flex;align-items:center;gap:var(--space-2);">
+            <i data-lucide="check-square" style="width:16px;height:16px;color:var(--color-green-500);"></i>
+            <span class="font-bold text-xs" id="bulk-selected-label">0 Selected</span>
+          </div>
+          <div style="display:flex;gap:var(--space-2);flex-wrap:wrap;">
+            <button class="btn btn-primary btn-sm text-xs" onclick="AdminModule.openBulkAssignClassModal()">
+              <i data-lucide="layers"></i> Assign to Class Batch
+            </button>
+            <button class="btn btn-danger btn-sm text-xs" onclick="AdminModule.executeBulkDelete()">
+              <i data-lucide="trash-2"></i> Delete Selected
+            </button>
+            <button class="btn btn-ghost btn-sm text-xs" style="color:white;" onclick="AdminModule.clearStudentSelection()">
+              Cancel
+            </button>
+          </div>
         </div>
       </div>
 
       <div class="search-box">
         <i data-lucide="search"></i>
-        <input type="text" class="form-input" id="student-search-input" placeholder="Search by name, register number, or class...">
+        <input type="text" class="form-input" id="student-search-input" placeholder="Search by name, register number, or class batch...">
       </div>
 
       <div class="table-container">
         <table class="data-table">
           <thead>
             <tr>
+              <th style="width:40px;text-align:center;">
+                <input type="checkbox" id="chk-select-all-students" title="Select all visible">
+              </th>
               <th>Candidate Name</th>
               <th>Register Number</th>
-              <th>Email</th>
               <th>Class / Batch</th>
-              <th>Account Status</th>
+              <th>Email Address</th>
+              <th>Contact Phone</th>
+              <th>Status</th>
+              <th style="text-align:right;">Actions</th>
             </tr>
           </thead>
           <tbody id="student-table-body">
-            ${students.map(s => `
-              <tr data-search="${UI.escapeHtml((s.name + ' ' + (s.registerNumber || '') + ' ' + (s.classId || '')).toLowerCase())}">
-                <td class="font-semibold">${UI.escapeHtml(s.name)}</td>
-                <td class="mono font-semibold text-xs">${UI.escapeHtml(s.registerNumber || '—')}</td>
-                <td class="text-xs text-muted">${UI.escapeHtml(s.email)}</td>
-                <td><span class="badge badge-muted">${UI.escapeHtml(s.classId || 'Standard')}</span></td>
-                <td>${s.active !== false ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-muted">Inactive</span>'}</td>
-              </tr>
-            `).join('')}
+            <!-- Rendered by renderStudentRows -->
           </tbody>
         </table>
       </div>
@@ -606,6 +652,89 @@ const AdminModule = {
 
     UI.renderPage(html);
 
+    const renderRows = () => {
+      const tbody = document.getElementById('student-table-body');
+      if (!tbody) return;
+
+      let filtered = students;
+      if (this.activeStudentClassFilter !== 'all') {
+        filtered = filtered.filter(s => s.classId === this.activeStudentClassFilter);
+      }
+
+      if (!filtered.length) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-xs text-muted py-6">No candidates found for this selection.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(s => `
+        <tr data-uid="${s.id}" data-search="${UI.escapeHtml((s.name + ' ' + (s.registerNumber || '') + ' ' + (s.classId || '') + ' ' + (s.email || '')).toLowerCase())}">
+          <td style="text-align:center;">
+            <input type="checkbox" class="student-chk" data-uid="${s.id}" ${this.selectedStudentUids.has(s.id) ? 'checked' : ''}>
+          </td>
+          <td>
+            <div class="font-bold text-dark text-sm">${UI.escapeHtml(s.name)}</div>
+          </td>
+          <td class="mono font-semibold text-xs">${UI.escapeHtml(s.registerNumber || '—')}</td>
+          <td>
+            <span class="badge badge-normal font-semibold">${UI.escapeHtml(s.classId || 'Unassigned')}</span>
+          </td>
+          <td class="text-xs text-muted">${UI.escapeHtml(s.email || '—')}</td>
+          <td class="text-xs mono">${UI.escapeHtml(s.phone || '—')}</td>
+          <td>${s.active !== false ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-muted">Inactive</span>'}</td>
+          <td style="text-align:right;">
+            <div style="display:inline-flex;gap:var(--space-1);">
+              <button class="btn btn-secondary btn-sm" onclick="AdminModule.renderEditStudentModal('${s.id}')" title="Edit candidate">
+                <i data-lucide="edit-2" style="width:13px;height:13px;"></i> Edit
+              </button>
+              <button class="btn btn-ghost btn-sm" style="color:var(--color-critical);" onclick="AdminModule.deleteStudent('${s.id}', '${UI.escapeHtml(s.name)}')" title="Delete candidate">
+                <i data-lucide="trash-2" style="width:13px;height:13px;"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+
+      lucide.createIcons({ nodes: [tbody] });
+
+      // Checkbox event listeners
+      tbody.querySelectorAll('.student-chk').forEach(chk => {
+        chk.onchange = () => {
+          const uid = chk.dataset.uid;
+          if (chk.checked) this.selectedStudentUids.add(uid);
+          else this.selectedStudentUids.delete(uid);
+          this.updateBulkBar();
+        };
+      });
+    };
+
+    renderRows();
+
+    // Select all checkbox
+    const selectAllChk = document.getElementById('chk-select-all-students');
+    if (selectAllChk) {
+      selectAllChk.onchange = () => {
+        const isChecked = selectAllChk.checked;
+        document.querySelectorAll('.student-chk').forEach(chk => {
+          chk.checked = isChecked;
+          const uid = chk.dataset.uid;
+          if (isChecked) this.selectedStudentUids.add(uid);
+          else this.selectedStudentUids.delete(uid);
+        });
+        this.updateBulkBar();
+      };
+    }
+
+    // Class Filter clicks
+    document.querySelectorAll('.filter-bar .filter-chip').forEach(chip => {
+      chip.onclick = () => {
+        document.querySelectorAll('.filter-bar .filter-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        this.activeStudentClassFilter = chip.dataset.class;
+        renderRows();
+      };
+    });
+
+    // Search input
     document.getElementById('student-search-input').oninput = UI.debounce((e) => {
       const q = e.target.value.toLowerCase().trim();
       document.querySelectorAll('#student-table-body tr').forEach(tr => {
@@ -615,60 +744,774 @@ const AdminModule = {
     }, 200);
   },
 
-  // 5. Invigilator Management View
+  updateBulkBar() {
+    const bar = document.getElementById('student-bulk-bar');
+    const label = document.getElementById('bulk-selected-label');
+    const count = this.selectedStudentUids.size;
+
+    if (count > 0) {
+      if (bar) bar.style.display = 'block';
+      if (label) label.textContent = `${count} Candidate(s) Selected`;
+    } else {
+      if (bar) bar.style.display = 'none';
+    }
+  },
+
+  clearStudentSelection() {
+    this.selectedStudentUids.clear();
+    document.querySelectorAll('.student-chk').forEach(c => c.checked = false);
+    const selectAll = document.getElementById('chk-select-all-students');
+    if (selectAll) selectAll.checked = false;
+    this.updateBulkBar();
+  },
+
+  // Modal: Add New Student Candidate
+  renderAddStudentModal() {
+    const modalHtml = `
+      <form id="add-student-form">
+        <div class="form-group">
+          <label class="form-label text-xs">Full Legal Name <span class="required">*</span></label>
+          <input type="text" id="add-std-name" class="form-input text-sm" placeholder="e.g. Rahul Sharma" required>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">
+          <div class="form-group">
+            <label class="form-label text-xs">Register Number <span class="required">*</span></label>
+            <input type="text" id="add-std-reg" class="form-input text-sm mono" placeholder="e.g. REG2024099" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label text-xs">Class / Batch Code <span class="required">*</span></label>
+            <input type="text" id="add-std-class" class="form-input text-sm" placeholder="e.g. CS-A" value="CS-A" required>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">
+          <div class="form-group">
+            <label class="form-label text-xs">Email Address <span class="required">*</span></label>
+            <input type="email" id="add-std-email" class="form-input text-sm" placeholder="rahul@examshield.in" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label text-xs">Contact Phone / WhatsApp</label>
+            <input type="tel" id="add-std-phone" class="form-input text-sm" placeholder="9876543210">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label text-xs">Initial Account Password</label>
+          <input type="text" id="add-std-password" class="form-input text-sm mono" value="demo123456" minlength="6">
+          <div class="form-hint">Default password is set to demo123456</div>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:var(--space-2);margin-top:var(--space-4);">
+          <button type="button" class="btn btn-secondary" onclick="UI.closeModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-new-std">Create Candidate</button>
+        </div>
+      </form>
+    `;
+
+    UI.showModal('Add Student Candidate', modalHtml);
+
+    document.getElementById('add-student-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('btn-save-new-std');
+      UI.setLoading(btn, true);
+
+      const name = document.getElementById('add-std-name').value.trim();
+      const reg = document.getElementById('add-std-reg').value.trim();
+      const classId = document.getElementById('add-std-class').value.trim();
+      const email = document.getElementById('add-std-email').value.trim().toLowerCase();
+      const phone = document.getElementById('add-std-phone').value.trim();
+      const password = document.getElementById('add-std-password').value;
+
+      try {
+        let uid = 'student_' + generateId();
+        // Optional Auth creation
+        try {
+          const cred = await firebase.auth().createUserWithEmailAndPassword(email, password);
+          uid = cred.user.uid;
+        } catch (authErr) {
+          console.warn('[Admin] Auth creation fallback:', authErr.message);
+        }
+
+        const record = {
+          id: uid,
+          name,
+          registerNumber: reg,
+          classId,
+          email,
+          phone,
+          role: 'student',
+          active: true,
+          createdAt: DB.serverTimestamp()
+        };
+
+        await Database.set(DB.user(uid), record);
+        UI.closeModal();
+        UI.toast(`Candidate ${name} added successfully!`, 'success');
+        AdminModule.renderStudents();
+      } catch (err) {
+        UI.toast('Failed to create candidate: ' + err.message, 'error');
+        UI.setLoading(btn, false);
+      }
+    };
+  },
+
+  // Modal: Edit Student
+  async renderEditStudentModal(uid) {
+    const student = await Database.get(DB.user(uid));
+    if (!student) return;
+
+    const modalHtml = `
+      <form id="edit-student-form">
+        <div class="form-group">
+          <label class="form-label text-xs">Full Legal Name <span class="required">*</span></label>
+          <input type="text" id="edit-std-name" class="form-input text-sm" value="${UI.escapeHtml(student.name || '')}" required>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">
+          <div class="form-group">
+            <label class="form-label text-xs">Register Number <span class="required">*</span></label>
+            <input type="text" id="edit-std-reg" class="form-input text-sm mono" value="${UI.escapeHtml(student.registerNumber || '')}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label text-xs">Class / Batch Code <span class="required">*</span></label>
+            <input type="text" id="edit-std-class" class="form-input text-sm" value="${UI.escapeHtml(student.classId || 'CS-A')}" required>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">
+          <div class="form-group">
+            <label class="form-label text-xs">Email Address</label>
+            <input type="email" id="edit-std-email" class="form-input text-sm" value="${UI.escapeHtml(student.email || '')}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label text-xs">Contact Phone</label>
+            <input type="tel" id="edit-std-phone" class="form-input text-sm" value="${UI.escapeHtml(student.phone || '')}">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label text-xs">Candidate Status</label>
+          <select id="edit-std-active" class="form-select text-sm">
+            <option value="true" ${student.active !== false ? 'selected' : ''}>Active (Permitted for exams)</option>
+            <option value="false" ${student.active === false ? 'selected' : ''}>Inactive / Suspended</option>
+          </select>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:var(--space-2);margin-top:var(--space-4);">
+          <button type="button" class="btn btn-secondary" onclick="UI.closeModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-edit-std">Save Changes</button>
+        </div>
+      </form>
+    `;
+
+    UI.showModal(`Edit Candidate: ${student.name}`, modalHtml);
+
+    document.getElementById('edit-student-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('btn-save-edit-std');
+      UI.setLoading(btn, true);
+
+      try {
+        const updates = {
+          name: document.getElementById('edit-std-name').value.trim(),
+          registerNumber: document.getElementById('edit-std-reg').value.trim(),
+          classId: document.getElementById('edit-std-class').value.trim(),
+          email: document.getElementById('edit-std-email').value.trim(),
+          phone: document.getElementById('edit-std-phone').value.trim(),
+          active: document.getElementById('edit-std-active').value === 'true',
+          updatedAt: DB.serverTimestamp()
+        };
+
+        await Database.update(DB.user(uid), updates);
+        UI.closeModal();
+        UI.toast('Candidate details updated', 'success');
+        AdminModule.renderStudents();
+      } catch (err) {
+        UI.toast('Failed to update: ' + err.message, 'error');
+        UI.setLoading(btn, false);
+      }
+    };
+  },
+
+  // Delete Individual Student
+  deleteStudent(uid, name) {
+    UI.confirm(
+      'Delete Candidate Record',
+      `Permanently delete candidate "${name}" from ExamShield? This will also remove any active seat allocation.`,
+      async () => {
+        try {
+          await Database.remove(DB.user(uid));
+
+          // Cleanup active assignments
+          const settings = await Database.get(DB.settings()) || {};
+          const examId = settings.activeExamId || 'exam_001';
+          const asgns = await Database.get(DB.assignments(examId)) || {};
+
+          for (const [asgnId, asgn] of Object.entries(asgns)) {
+            if (asgn.studentId === uid) {
+              await Database.remove(DB.assignment(examId, asgnId));
+              if (asgn.qrToken) {
+                await Database.remove(DB.qrToken(asgn.qrToken));
+              }
+            }
+          }
+
+          UI.toast(`Candidate "${name}" removed`, 'info');
+          AdminModule.renderStudents();
+        } catch (err) {
+          UI.toast('Failed to delete candidate: ' + err.message, 'error');
+        }
+      },
+      'Delete Candidate',
+      true
+    );
+  },
+
+  // Bulk Modal: Assign multiple candidates to Class Batch
+  openBulkAssignClassModal() {
+    const selectedCount = this.selectedStudentUids.size;
+    if (!selectedCount) return;
+
+    const modalHtml = `
+      <form id="bulk-assign-class-form">
+        <p class="text-xs text-muted mb-3">
+          Update the class/batch assignment for <strong>${selectedCount} selected candidate(s)</strong>:
+        </p>
+
+        <div class="form-group">
+          <label class="form-label text-xs">Target Class Batch <span class="required">*</span></label>
+          <input type="text" id="bulk-target-class" class="form-input text-sm" placeholder="e.g. CS-A, CS-B, EC-A" value="CS-A" required>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:var(--space-2);margin-top:var(--space-4);">
+          <button type="button" class="btn btn-secondary" onclick="UI.closeModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Apply Class Assignment</button>
+        </div>
+      </form>
+    `;
+
+    UI.showModal(`Assign Class for ${selectedCount} Candidates`, modalHtml);
+
+    document.getElementById('bulk-assign-class-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const targetClass = document.getElementById('bulk-target-class').value.trim();
+      if (!targetClass) return;
+
+      const updates = {};
+      this.selectedStudentUids.forEach(uid => {
+        updates['users/' + uid + '/classId'] = targetClass;
+        updates['users/' + uid + '/updatedAt'] = DB.serverTimestamp();
+      });
+
+      await Database.multiUpdate(updates);
+      UI.closeModal();
+      UI.toast(`Assigned ${selectedCount} candidates to class ${targetClass}!`, 'success');
+      AdminModule.renderStudents();
+    };
+  },
+
+  // Bulk Delete
+  executeBulkDelete() {
+    const selectedCount = this.selectedStudentUids.size;
+    if (!selectedCount) return;
+
+    UI.confirm(
+      'Bulk Delete Candidates',
+      `Are you sure you want to permanently delete all ${selectedCount} selected candidates? This cannot be undone.`,
+      async () => {
+        try {
+          const updates = {};
+          this.selectedStudentUids.forEach(uid => {
+            updates['users/' + uid] = null;
+          });
+
+          await Database.multiUpdate(updates);
+          UI.toast(`Successfully deleted ${selectedCount} candidates`, 'info');
+          AdminModule.renderStudents();
+        } catch (err) {
+          UI.toast('Failed bulk delete: ' + err.message, 'error');
+        }
+      },
+      `Delete ${selectedCount} Students`,
+      true
+    );
+  },
+
+  // 5. Invigilator Management View (Manual Addition, Invite Link, Duties)
   async renderInvigilators() {
     const users = await Database.getList(DB.users());
     const invigilators = users.filter(u => u.role === 'invigilator');
     const invigProfiles = await Database.getList(DB.invigilators());
+    const rooms = await Database.getList(DB.rooms());
+    const invitations = await Database.getList(DB.invitations());
+
+    const pendingInvites = invitations.filter(inv => inv.role === 'invigilator' && inv.status === 'pending');
+
     const profMap = new Map();
     invigProfiles.forEach(p => profMap.set(p.id, p));
 
+    const roomMap = new Map();
+    rooms.forEach(r => roomMap.set(r.id, r.name));
+
     const html = `
       <div class="page-header">
-        <h2>Invigilator Registry & Workload</h2>
-        <div class="page-subtitle">Supervising faculty availability and active incident distribution</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:var(--space-2);">
+          <div>
+            <h2>Invigilator Registry & Appointment</h2>
+            <div class="page-subtitle">Supervising faculty assignments, onboarding invitations, and live workloads</div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="AdminModule.renderInviteInvigilatorModal()">
+            <i data-lucide="user-plus"></i> Add / Invite Invigilator
+          </button>
+        </div>
       </div>
 
-      <div class="table-container">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Faculty Name</th>
-              <th>Email Address</th>
-              <th>Availability</th>
-              <th>Active Incidents Load</th>
-              <th>Duty Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${invigilators.map(inv => {
-              const prof = profMap.get(inv.id) || {};
-              const load = prof.activeIncidentCount || 0;
-              const isAvail = prof.available !== false;
-              return `
+      <!-- Pending Onboarding Invitations Section -->
+      ${pendingInvites.length > 0 ? `
+        <div class="card mb-6" style="border-left:4px solid var(--color-warning);">
+          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+            <h3 class="card-title text-sm" style="display:flex;align-items:center;gap:6px;">
+              <i data-lucide="mail" style="width:16px;height:16px;color:var(--color-warning);"></i>
+              Pending Onboarding Invitations (${pendingInvites.length})
+            </h3>
+            <span class="badge badge-warning text-xs">Waiting for faculty activation</span>
+          </div>
+          <div class="card-body p-0">
+            <div class="table-container" style="border:none;">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Invitee Name</th>
+                    <th>Email Address</th>
+                    <th>Assigned Venue</th>
+                    <th>Invited On</th>
+                    <th style="text-align:right;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${pendingInvites.map(inv => {
+      const inviteUrl = `${window.location.origin}${window.location.pathname.replace('index.html', '')}register.html?invite=${inv.id}`;
+      return `
+                      <tr>
+                        <td class="font-bold text-xs">${UI.escapeHtml(inv.name)}</td>
+                        <td class="text-xs text-muted mono">${UI.escapeHtml(inv.email)}</td>
+                        <td class="text-xs">${UI.escapeHtml(inv.assignedRoomName || inv.assignedRoom || 'General Hall')}</td>
+                        <td class="text-xs text-muted">${UI.formatDateTime(inv.createdAt)}</td>
+                        <td style="text-align:right;">
+                          <div style="display:inline-flex;gap:var(--space-1);">
+                            <button class="btn btn-secondary btn-sm" onclick="AdminModule.copyInviteLink('${inviteUrl}')" title="Copy invitation link">
+                              <i data-lucide="copy" style="width:12px;height:12px;"></i> Copy Link
+                            </button>
+                            ${inv.phone ? `
+                              <button class="btn btn-secondary btn-sm" onclick="AdminModule.sendInviteWhatsApp('${inv.phone}', '${UI.escapeHtml(inv.name)}', '${inviteUrl}')" title="Send via WhatsApp">
+                                <i data-lucide="message-circle" style="width:12px;height:12px;color:var(--color-green-600);"></i> WhatsApp
+                              </button>
+                            ` : ''}
+                            <button class="btn btn-ghost btn-sm" style="color:var(--color-critical);" onclick="AdminModule.revokeInvitation('${inv.id}')" title="Revoke">
+                              <i data-lucide="x" style="width:12px;height:12px;"></i>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    `;
+    }).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      ` : ''}
+
+      <!-- Active Invigilators Registry -->
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title">Active Examination Supervisors (${invigilators.length})</h3>
+        </div>
+        <div class="card-body p-0">
+          <div class="table-container" style="border:none;">
+            <table class="data-table">
+              <thead>
                 <tr>
-                  <td class="font-semibold">${UI.escapeHtml(inv.name)}</td>
-                  <td class="text-xs text-muted">${UI.escapeHtml(inv.email)}</td>
-                  <td>
-                    ${isAvail ? '<span class="badge badge-success">Available</span>' : '<span class="badge badge-muted">Off Duty</span>'}
-                  </td>
-                  <td class="mono font-bold text-xs" style="color:${load > 0 ? 'var(--color-critical)' : 'inherit'};">
-                    ${load} active
-                  </td>
-                  <td>
-                    <button class="btn btn-secondary btn-sm" onclick="AdminModule.toggleInvigilatorAvailability('${inv.id}', ${!isAvail})">
-                      Set ${isAvail ? 'Off Duty' : 'Available'}
-                    </button>
-                  </td>
+                  <th>Faculty Name</th>
+                  <th>Official Email</th>
+                  <th>Assigned Room</th>
+                  <th>Contact</th>
+                  <th>Duty Availability</th>
+                  <th>Active Incident Load</th>
+                  <th style="text-align:right;">Management</th>
                 </tr>
-              `;
-            }).join('')}
-          </tbody>
-        </table>
+              </thead>
+              <tbody>
+                ${!invigilators.length ? `
+                  <tr><td colspan="7" class="text-center text-xs text-muted py-6">No invigilators registered. Click "Add / Invite Invigilator" to onboard faculty.</td></tr>
+                ` : invigilators.map(inv => {
+      const prof = profMap.get(inv.id) || {};
+      const load = prof.activeIncidentCount || 0;
+      const isAvail = prof.available !== false;
+
+      // Find room
+      let assignedRoomName = 'Unassigned';
+      if (inv.assignedRooms) {
+        const rId = Object.keys(inv.assignedRooms)[0];
+        if (rId) assignedRoomName = 'Room ' + (roomMap.get(rId) || rId);
+      }
+
+      return `
+                    <tr>
+                      <td>
+                        <div class="font-bold text-sm">${UI.escapeHtml(inv.name)}</div>
+                      </td>
+                      <td class="text-xs text-muted mono">${UI.escapeHtml(inv.email)}</td>
+                      <td>
+                        <span class="badge ${assignedRoomName !== 'Unassigned' ? 'badge-normal' : 'badge-muted'} text-xs font-semibold">
+                          ${UI.escapeHtml(assignedRoomName)}
+                        </span>
+                      </td>
+                      <td class="text-xs mono">${UI.escapeHtml(inv.phone || '—')}</td>
+                      <td>
+                        ${isAvail ? '<span class="badge badge-success">Available</span>' : '<span class="badge badge-muted">Off Duty</span>'}
+                      </td>
+                      <td class="mono font-bold text-xs" style="color:${load > 0 ? 'var(--color-critical)' : 'inherit'};">
+                        ${load} active
+                      </td>
+                      <td style="text-align:right;">
+                        <div style="display:inline-flex;gap:var(--space-1);">
+                          <button class="btn btn-secondary btn-sm" onclick="AdminModule.toggleInvigilatorAvailability('${inv.id}', ${!isAvail})">
+                            ${isAvail ? 'Off Duty' : 'Set Available'}
+                          </button>
+                          <button class="btn btn-secondary btn-sm" onclick="AdminModule.renderEditInvigilatorModal('${inv.id}')" title="Edit faculty">
+                            <i data-lucide="edit-2" style="width:13px;height:13px;"></i> Edit
+                          </button>
+                          <button class="btn btn-ghost btn-sm" style="color:var(--color-critical);" onclick="AdminModule.deleteInvigilator('${inv.id}', '${UI.escapeHtml(inv.name)}')" title="Remove supervisor">
+                            <i data-lucide="trash-2" style="width:13px;height:13px;"></i>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  `;
+    }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     `;
 
     UI.renderPage(html);
+  },
+
+  // Modal: Add / Invite Invigilator
+  async renderInviteInvigilatorModal() {
+    const rooms = await Database.getList(DB.rooms());
+
+    const modalHtml = `
+      <form id="invite-inv-form">
+        <p class="text-xs text-muted mb-4">
+          Add an invigilator manually by generating a secure onboarding invitation link or creating their account directly:
+        </p>
+
+        <div class="form-group">
+          <label class="form-label text-xs">Faculty Name <span class="required">*</span></label>
+          <input type="text" id="inv-name" class="form-input text-sm" placeholder="e.g. Dr. Sarah Khan" required>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">
+          <div class="form-group">
+            <label class="form-label text-xs">Official Email <span class="required">*</span></label>
+            <input type="email" id="inv-email" class="form-input text-sm" placeholder="sarah@university.edu" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label text-xs">Phone / WhatsApp Number</label>
+            <input type="tel" id="inv-phone" class="form-input text-sm" placeholder="e.g. +91 9876543210">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label text-xs">Assigned Supervision Room</label>
+          <select id="inv-room" class="form-select text-sm">
+            <option value="">-- Choose Supervision Room --</option>
+            ${rooms.map(r => `<option value="${r.id}">Room ${UI.escapeHtml(r.name)} (${UI.escapeHtml(r.building || 'Main Block')})</option>`).join('')}
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label text-xs">Onboarding Method</label>
+          <div style="display:flex;gap:var(--space-4);margin-top:var(--space-1);">
+            <label style="font-size:var(--text-xs);display:flex;align-items:center;gap:4px;">
+              <input type="radio" name="inv-mode" value="link" checked> Send Onboarding Invite Link
+            </label>
+            <label style="font-size:var(--text-xs);display:flex;align-items:center;gap:4px;">
+              <input type="radio" name="inv-mode" value="direct"> Create Directly with Password
+            </label>
+          </div>
+        </div>
+
+        <div id="inv-direct-pass-group" class="form-group" style="display:none;">
+          <label class="form-label text-xs">Initial Password</label>
+          <input type="text" id="inv-direct-pass" class="form-input text-sm mono" value="demo123456" minlength="6">
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:var(--space-2);margin-top:var(--space-4);">
+          <button type="button" class="btn btn-secondary" onclick="UI.closeModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-inv">
+            <i data-lucide="send"></i> Issue Invitation / Account
+          </button>
+        </div>
+      </form>
+    `;
+
+    UI.showModal('Add / Invite Faculty Invigilator', modalHtml);
+
+    // Toggle direct password
+    document.querySelectorAll('input[name="inv-mode"]').forEach(r => {
+      r.onchange = () => {
+        document.getElementById('inv-direct-pass-group').style.display = (r.value === 'direct') ? 'block' : 'none';
+      };
+    });
+
+    document.getElementById('invite-inv-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('btn-submit-inv');
+      UI.setLoading(btn, true);
+
+      const name = document.getElementById('inv-name').value.trim();
+      const email = document.getElementById('inv-email').value.trim().toLowerCase();
+      const phone = document.getElementById('inv-phone').value.trim();
+      const room = document.getElementById('inv-room').value;
+      const roomObj = rooms.find(r => r.id === room);
+      const roomName = roomObj ? roomObj.name : room;
+      const mode = document.querySelector('input[name="inv-mode"]:checked').value;
+
+      try {
+        if (mode === 'link') {
+          // Generate Invitation
+          const inviteId = generateId('inv');
+          const inviteData = {
+            id: inviteId,
+            role: 'invigilator',
+            name: name,
+            email: email,
+            phone: phone,
+            assignedRoom: room,
+            assignedRoomName: roomName ? 'Room ' + roomName : '',
+            status: 'pending',
+            createdAt: DB.serverTimestamp(),
+            createdBy: Auth.getUid()
+          };
+
+          await Database.set(DB.invitation(inviteId), inviteData);
+
+          const inviteUrl = `${window.location.origin}${window.location.pathname.replace('index.html', '')}register.html?invite=${inviteId}`;
+
+          UI.closeModal();
+
+          // Show generated link modal
+          UI.showModal(
+            'Invitation Link Generated',
+            `
+              <div>
+                <p class="text-xs text-muted mb-3">
+                  Share this onboarding link with <strong>${UI.escapeHtml(name)}</strong>. They can set their password and activate their invigilator privileges:
+                </p>
+                <div style="background:var(--color-off-white);padding:var(--space-3);border:1px solid var(--border-color);border-radius:var(--radius-sm);word-break:break-all;font-family:var(--font-mono);font-size:var(--text-xs);margin-bottom:var(--space-4);">
+                  ${inviteUrl}
+                </div>
+                <div style="display:flex;gap:var(--space-2);justify-content:flex-end;">
+                  <button class="btn btn-secondary btn-sm" onclick="AdminModule.copyInviteLink('${inviteUrl}')">
+                    <i data-lucide="copy"></i> Copy Link
+                  </button>
+                  ${phone ? `
+                    <button class="btn btn-primary btn-sm" onclick="AdminModule.sendInviteWhatsApp('${phone}', '${UI.escapeHtml(name)}', '${inviteUrl}')">
+                      <i data-lucide="message-circle"></i> Send on WhatsApp
+                    </button>
+                  ` : ''}
+                </div>
+              </div>
+            `
+          );
+        } else {
+          // Direct account creation
+          const password = document.getElementById('inv-direct-pass').value;
+          let uid = 'invig_' + generateId();
+
+          try {
+            const cred = await firebase.auth().createUserWithEmailAndPassword(email, password);
+            uid = cred.user.uid;
+          } catch (authErr) {
+            console.warn('[Admin] Auth direct create:', authErr.message);
+          }
+
+          const userData = {
+            id: uid,
+            name: name,
+            email: email,
+            phone: phone,
+            role: 'invigilator',
+            active: true,
+            assignedRooms: room ? { [room]: true } : {},
+            createdAt: DB.serverTimestamp()
+          };
+
+          await Database.set(DB.user(uid), userData);
+          await Database.set(DB.invigilator(uid), {
+            available: true,
+            activeIncidentCount: 0,
+            assignedRooms: room ? { [room]: true } : {}
+          });
+
+          if (room) {
+            await Database.update(DB.room(room), {
+              invigilatorId: uid,
+              updatedAt: DB.serverTimestamp()
+            });
+          }
+
+          UI.closeModal();
+          UI.toast(`Invigilator account for ${name} created directly!`, 'success');
+        }
+
+        AdminModule.renderInvigilators();
+      } catch (err) {
+        UI.toast('Failed: ' + err.message, 'error');
+        UI.setLoading(btn, false);
+      }
+    };
+  },
+
+  copyInviteLink(url) {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url);
+      UI.toast('Invitation link copied to clipboard!', 'success');
+    } else {
+      prompt('Copy invitation link:', url);
+    }
+  },
+
+  sendInviteWhatsApp(phone, name, inviteUrl) {
+    const msg = `Hello ${name}, you have been appointed as an official Invigilator on ExamShield. Please complete your registration and set your password using this secure link: ${inviteUrl}`;
+    WhatsAppHelper.openWhatsApp(phone, msg, name);
+  },
+
+  async revokeInvitation(inviteId) {
+    UI.confirm('Revoke Invitation', 'Revoke this pending invitation link?', async () => {
+      await Database.remove(DB.invitation(inviteId));
+      UI.toast('Invitation revoked', 'info');
+      AdminModule.renderInvigilators();
+    });
+  },
+
+  // Modal: Edit Invigilator
+  async renderEditInvigilatorModal(uid) {
+    const inv = await Database.get(DB.user(uid));
+    const rooms = await Database.getList(DB.rooms());
+    if (!inv) return;
+
+    let currentRoomId = '';
+    if (inv.assignedRooms) {
+      currentRoomId = Object.keys(inv.assignedRooms)[0] || '';
+    }
+
+    const modalHtml = `
+      <form id="edit-inv-form">
+        <div class="form-group">
+          <label class="form-label text-xs">Faculty Name <span class="required">*</span></label>
+          <input type="text" id="edit-inv-name" class="form-input text-sm" value="${UI.escapeHtml(inv.name || '')}" required>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">
+          <div class="form-group">
+            <label class="form-label text-xs">Email Address</label>
+            <input type="email" id="edit-inv-email" class="form-input text-sm" value="${UI.escapeHtml(inv.email || '')}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label text-xs">Contact Phone</label>
+            <input type="tel" id="edit-inv-phone" class="form-input text-sm" value="${UI.escapeHtml(inv.phone || '')}">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label text-xs">Assigned Room Venue</label>
+          <select id="edit-inv-room" class="form-select text-sm">
+            <option value="">-- Unassigned --</option>
+            ${rooms.map(r => `<option value="${r.id}" ${r.id === currentRoomId ? 'selected' : ''}>Room ${UI.escapeHtml(r.name)} (${UI.escapeHtml(r.building || '')})</option>`).join('')}
+          </select>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:var(--space-2);margin-top:var(--space-4);">
+          <button type="button" class="btn btn-secondary" onclick="UI.closeModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-edit-inv">Save Changes</button>
+        </div>
+      </form>
+    `;
+
+    UI.showModal(`Edit Faculty: ${inv.name}`, modalHtml);
+
+    document.getElementById('edit-inv-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('btn-save-edit-inv');
+      UI.setLoading(btn, true);
+
+      try {
+        const newRoom = document.getElementById('edit-inv-room').value;
+        const updates = {
+          name: document.getElementById('edit-inv-name').value.trim(),
+          email: document.getElementById('edit-inv-email').value.trim(),
+          phone: document.getElementById('edit-inv-phone').value.trim(),
+          assignedRooms: newRoom ? { [newRoom]: true } : {},
+          updatedAt: DB.serverTimestamp()
+        };
+
+        await Database.update(DB.user(uid), updates);
+        await Database.update(DB.invigilator(uid), {
+          assignedRooms: newRoom ? { [newRoom]: true } : {}
+        });
+
+        // Update room record
+        if (newRoom) {
+          await Database.update(DB.room(newRoom), {
+            invigilatorId: uid,
+            updatedAt: DB.serverTimestamp()
+          });
+        }
+
+        UI.closeModal();
+        UI.toast('Invigilator profile updated', 'success');
+        AdminModule.renderInvigilators();
+      } catch (err) {
+        UI.toast('Failed to update: ' + err.message, 'error');
+        UI.setLoading(btn, false);
+      }
+    };
+  },
+
+  // Delete Invigilator
+  deleteInvigilator(uid, name) {
+    UI.confirm(
+      'Remove Faculty Supervisor',
+      `Permanently remove invigilator "${name}"? This unassigns any supervised rooms.`,
+      async () => {
+        try {
+          // Release rooms
+          const rooms = await Database.getList(DB.rooms());
+          for (const r of rooms) {
+            if (r.invigilatorId === uid) {
+              await Database.update(DB.room(r.id), { invigilatorId: '' });
+            }
+          }
+
+          await Database.remove(DB.user(uid));
+          await Database.remove(DB.invigilator(uid));
+
+          UI.toast(`Invigilator "${name}" removed`, 'info');
+          AdminModule.renderInvigilators();
+        } catch (err) {
+          UI.toast('Failed to delete: ' + err.message, 'error');
+        }
+      },
+      'Remove Invigilator',
+      true
+    );
   },
 
   async toggleInvigilatorAvailability(uid, newStatus) {
@@ -759,8 +1602,8 @@ const AdminModule = {
             </thead>
             <tbody>
               ${roomAsgns.map(a => {
-                const s = userMap.get(a.studentId) || {};
-                return `
+        const s = userMap.get(a.studentId) || {};
+        return `
                   <tr>
                     <td class="font-bold mono text-sm" style="color:var(--color-green-600);">${UI.escapeHtml(a.seatNumber)}</td>
                     <td class="font-semibold">${UI.escapeHtml(s.name || 'Candidate')}</td>
@@ -769,7 +1612,7 @@ const AdminModule = {
                     <td><span class="badge badge-success">Assigned</span></td>
                   </tr>
                 `;
-              }).join('')}
+      }).join('')}
             </tbody>
           </table>
         </div>
@@ -1155,187 +1998,465 @@ const AdminModule = {
   },
 
   // 10. Additional Module — Interactive Room Visualization & Room Intelligence
+  activeRoomControlView: 'matrix', // 'matrix', 'map', 'cards'
+  activeRoomBuildingFilter: 'all',
+  activeRoomStatusFilter: 'all',
+
   async renderRoomControlCenter() {
     const rooms = await Database.getList(DB.rooms());
-    const buildings = await Database.getList(DB.buildings());
+    const buildingsFromDb = await Database.getList(DB.buildings());
     const settings = await Database.get(DB.settings()) || {};
     const activeExamId = settings.activeExamId || 'exam_001';
+
+    // Extract unique buildings dynamically from both DB and room objects
+    const buildingMap = new Map();
+    buildingsFromDb.forEach(b => buildingMap.set(b.id || b.name, b.name));
+    rooms.forEach(r => {
+      if (r.building && !buildingMap.has(r.building)) {
+        buildingMap.set(r.building, r.building);
+      }
+    });
 
     const html = `
       <div class="page-header">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:var(--space-2);">
           <div>
-            <h2>Room Visualization Center</h2>
-            <div class="page-subtitle">Interactive floor plan mapping, physical room intelligence, and live occupancy</div>
+            <h2>Room Control & Campus Spatial Center</h2>
+            <div class="page-subtitle">Interactive architectural mapping, physical floor plans, and real-time room readiness intelligence</div>
           </div>
-          <div style="display:flex;gap:var(--space-2);">
-            <select class="form-select text-xs" id="ctrl-building-select">
-              <option value="all">All Buildings (Composite View)</option>
-              ${buildings.map(b => `<option value="${b.id}">${UI.escapeHtml(b.name)}</option>`).join('')}
-            </select>
-            <button class="btn btn-secondary btn-sm" onclick="AdminModule.renderNewRoomModal()">
+          <div style="display:flex;gap:var(--space-2);flex-wrap:wrap;">
+            <button class="btn btn-primary btn-sm" onclick="AdminModule.renderNewRoomModal()">
               <i data-lucide="plus"></i> Add Room
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="CampusMap.openModal()">
+              <i data-lucide="map"></i> Fullscreen Campus Map
             </button>
           </div>
         </div>
       </div>
 
-      <!-- Interactive Visual Floor Plan -->
-      <div class="card mb-6">
-        <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
-          <h3 class="card-title">Campus Floor Plan & Spatial Room Mapping</h3>
-          <div style="display:flex;gap:var(--space-3);align-items:center;font-size:var(--text-xs);">
-            <span style="display:flex;align-items:center;gap:4px;"><span class="status-dot present"></span> Ready / Ongoing</span>
-            <span style="display:flex;align-items:center;gap:4px;"><span class="status-dot critical"></span> Assistance Required</span>
-            <span style="display:flex;align-items:center;gap:4px;"><span class="status-dot unmarked"></span> Preparing</span>
-          </div>
+      <!-- Real-Time Metric Strip -->
+      <div class="stats-grid mb-6" id="room-ctrl-stats-strip">
+        <div class="stat-card">
+          <div class="stat-label">Total Examination Venues</div>
+          <div class="stat-value mono" id="stat-total-rooms">${rooms.length}</div>
+          <div class="stat-change text-xs">Campus-wide coverage</div>
         </div>
-        <div class="card-body">
-          <div class="floor-plan" id="campus-floor-plan" style="min-height:360px;">
-            <!-- Dynamic room blocks positioned via floorPlanPosition -->
+        <div class="stat-card stat-success">
+          <div class="stat-label">Fully Ready Venues</div>
+          <div class="stat-value mono" id="stat-ready-rooms" style="color:var(--color-green-600);">—</div>
+          <div class="stat-change text-xs">Readiness confirmed</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Venues in Preparation</div>
+          <div class="stat-value mono" id="stat-prep-rooms">—</div>
+          <div class="stat-change text-xs">Pre-flight checks active</div>
+        </div>
+        <div class="stat-card" id="stat-card-alerts">
+          <div class="stat-label">Active Venue Alerts</div>
+          <div class="stat-value mono" id="stat-alert-rooms">—</div>
+          <div class="stat-change text-xs">Assistance dispatched</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Seating Capacity</div>
+          <div class="stat-value mono" id="stat-total-seats">—</div>
+          <div class="stat-change text-xs">Across all exam halls</div>
+        </div>
+      </div>
+
+      <!-- Control Toolbar: Mode Switcher & Filter Bar -->
+      <div class="card mb-6">
+        <div class="card-body" style="padding:var(--space-3) var(--space-4);">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:var(--space-3);">
+            <!-- View Mode Switcher -->
+            <div style="display:flex;gap:4px;background:var(--color-off-white);padding:4px;border-radius:var(--radius-sm);border:1px solid var(--border-subtle);">
+              <button class="btn btn-sm ${this.activeRoomControlView === 'matrix' ? 'btn-primary' : 'btn-ghost'}" id="btn-view-matrix">
+                <i data-lucide="grid-3x3"></i> Floor Plan Matrix
+              </button>
+              <button class="btn btn-sm ${this.activeRoomControlView === 'map' ? 'btn-primary' : 'btn-ghost'}" id="btn-view-map">
+                <i data-lucide="map"></i> Campus Spatial Map
+              </button>
+              <button class="btn btn-sm ${this.activeRoomControlView === 'cards' ? 'btn-primary' : 'btn-ghost'}" id="btn-view-cards">
+                <i data-lucide="layers"></i> Venue Directory
+              </button>
+            </div>
+
+            <!-- Filters -->
+            <div style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap;">
+              <select class="form-select text-xs" id="ctrl-building-select" style="min-width:180px;">
+                <option value="all">All Buildings & Wings</option>
+                ${Array.from(buildingMap.entries()).map(([id, name]) => `
+                  <option value="${id}" ${this.activeRoomBuildingFilter === id ? 'selected' : ''}>${UI.escapeHtml(name)}</option>
+                `).join('')}
+              </select>
+
+              <select class="form-select text-xs" id="ctrl-status-select" style="min-width:150px;">
+                <option value="all">All Statuses</option>
+                <option value="ready" ${this.activeRoomStatusFilter === 'ready' ? 'selected' : ''}>Ready / Operational</option>
+                <option value="preparing" ${this.activeRoomStatusFilter === 'preparing' ? 'selected' : ''}>In Preparation</option>
+                <option value="not-ready" ${this.activeRoomStatusFilter === 'not-ready' ? 'selected' : ''}>Not Ready</option>
+                <option value="alert" ${this.activeRoomStatusFilter === 'alert' ? 'selected' : ''}>Has Active Alerts</option>
+              </select>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- Room Intelligence Grid -->
-      <div class="card">
-        <div class="card-header">
-          <h3 class="card-title">Live Venue Intelligence Directory</h3>
-        </div>
-        <div class="card-body" id="room-intelligence-grid">
-          <!-- Populated dynamically -->
-        </div>
+      <!-- Dynamic View Container -->
+      <div id="room-ctrl-view-container">
+        <!-- Rendered based on activeRoomControlView -->
       </div>
     `;
 
     UI.renderPage(html);
 
-    const floorPlan = document.getElementById('campus-floor-plan');
-    const intelGrid = document.getElementById('room-intelligence-grid');
+    // Render active view and bind live listeners
+    const viewContainer = document.getElementById('room-ctrl-view-container');
+    const bldgSelect = document.getElementById('ctrl-building-select');
+    const statusSelect = document.getElementById('ctrl-status-select');
 
-    const updateVisualization = async () => {
+    const btnMatrix = document.getElementById('btn-view-matrix');
+    const btnMap = document.getElementById('btn-view-map');
+    const btnCards = document.getElementById('btn-view-cards');
+
+    const setView = (mode) => {
+      this.activeRoomControlView = mode;
+      [btnMatrix, btnMap, btnCards].forEach(btn => {
+        btn.classList.remove('btn-primary');
+        btn.classList.add('btn-ghost');
+      });
+      if (mode === 'matrix') { btnMatrix.classList.add('btn-primary'); btnMatrix.classList.remove('btn-ghost'); }
+      if (mode === 'map') { btnMap.classList.add('btn-primary'); btnMap.classList.remove('btn-ghost'); }
+      if (mode === 'cards') { btnCards.classList.add('btn-primary'); btnCards.classList.remove('btn-ghost'); }
+      renderActiveView();
+    };
+
+    btnMatrix.onclick = () => setView('matrix');
+    btnMap.onclick = () => setView('map');
+    btnCards.onclick = () => setView('cards');
+
+    bldgSelect.onchange = (e) => {
+      this.activeRoomBuildingFilter = e.target.value;
+      renderActiveView();
+    };
+
+    statusSelect.onchange = (e) => {
+      this.activeRoomStatusFilter = e.target.value;
+      renderActiveView();
+    };
+
+    const renderActiveView = async () => {
       const allRooms = await Database.getList(DB.rooms());
       const allIncidents = await Database.getList(DB.incidents());
       const activeIncidents = allIncidents.filter(i => i.status !== 'resolved' && i.status !== 'closed');
       const checklists = await Database.get(DB.ref('roomChecklists')) || {};
       const users = await Database.getList(DB.users());
       const userMap = new Map(users.map(u => [u.id, u.name]));
+      const assignmentsMap = await Database.get(DB.assignments(activeExamId)) || {};
+      const attendanceMap = await Database.get(DB.attendance(activeExamId)) || {};
 
-      // Render Floor Plan
-      floorPlan.innerHTML = allRooms.map((rm, idx) => {
-        const pos = rm.floorPlanPosition || { x: (idx % 2) * 50 + 5, y: Math.floor(idx / 2) * 45 + 5, width: 42, height: 40 };
-        const roomIncidents = activeIncidents.filter(i => i.roomId === rm.id);
-        const hasCritical = roomIncidents.some(i => i.priority === 'critical');
+      // Filter rooms according to dropdown selections
+      let filteredRooms = allRooms;
+      if (this.activeRoomBuildingFilter !== 'all') {
+        filteredRooms = filteredRooms.filter(r => (r.building === this.activeRoomBuildingFilter || r.buildingId === this.activeRoomBuildingFilter));
+      }
+      if (this.activeRoomStatusFilter !== 'all') {
+        if (this.activeRoomStatusFilter === 'alert') {
+          filteredRooms = filteredRooms.filter(r => activeIncidents.some(i => i.roomId === r.id));
+        } else {
+          filteredRooms = filteredRooms.filter(r => (r.status || 'not-ready') === this.activeRoomStatusFilter);
+        }
+      }
 
-        let statusClass = 'status-ready';
-        if (hasCritical) statusClass = 'status-assistance';
-        else if (rm.status === 'not-ready') statusClass = 'status-not-ready';
-        else if (rm.status === 'preparing') statusClass = 'status-preparing';
+      // Update Metric Strip
+      let readyCount = 0;
+      let prepCount = 0;
+      let alertRoomsCount = 0;
+      let totalCapacity = 0;
 
-        return `
-          <div class="floor-plan-room ${statusClass}" style="left:${pos.x}%;top:${pos.y}%;width:${pos.width}%;height:${pos.height}%;" onclick="AdminModule.openRoomInspectorModal('${rm.id}')">
-            <span class="room-status-indicator"></span>
-            <div class="room-label">Room ${UI.escapeHtml(rm.name)}</div>
-            <div class="room-occupancy">${rm.capacity} Seats · Block ${UI.escapeHtml(rm.block || 'A')}</div>
-            ${roomIncidents.length > 0 ? `
-              <div style="margin-top:4px;">
-                <span class="badge ${hasCritical ? 'badge-critical' : 'badge-warning'}" style="font-size:0.625rem;">
-                  ${roomIncidents.length} Alert(s)
-                </span>
+      allRooms.forEach(rm => {
+        totalCapacity += (rm.capacity || (rm.rows * rm.columns) || 30);
+        const hasInc = activeIncidents.some(i => i.roomId === rm.id);
+        if (hasInc) alertRoomsCount++;
+        if (rm.status === 'ready') readyCount++;
+        else if (rm.status === 'preparing') prepCount++;
+      });
+
+      const statTotalEl = document.getElementById('stat-total-rooms');
+      const statReadyEl = document.getElementById('stat-ready-rooms');
+      const statPrepEl = document.getElementById('stat-prep-rooms');
+      const statAlertEl = document.getElementById('stat-alert-rooms');
+      const statSeatsEl = document.getElementById('stat-total-seats');
+      const statAlertCard = document.getElementById('stat-card-alerts');
+
+      if (statTotalEl) statTotalEl.textContent = allRooms.length;
+      if (statReadyEl) statReadyEl.textContent = readyCount;
+      if (statPrepEl) statPrepEl.textContent = prepCount;
+      if (statAlertEl) statAlertEl.textContent = alertRoomsCount;
+      if (statSeatsEl) statSeatsEl.textContent = totalCapacity;
+
+      if (statAlertCard) {
+        if (alertRoomsCount > 0) {
+          statAlertCard.classList.add('stat-critical');
+          statAlertCard.classList.remove('stat-success');
+        } else {
+          statAlertCard.classList.remove('stat-critical');
+          statAlertCard.classList.add('stat-success');
+        }
+      }
+
+      // Render the selected view mode
+      if (this.activeRoomControlView === 'map') {
+        viewContainer.innerHTML = `<div id="ctrl-campus-map-embed"></div>`;
+        await CampusMap.render(document.getElementById('ctrl-campus-map-embed'), { canInspect: true });
+        return;
+      }
+
+      if (this.activeRoomControlView === 'matrix') {
+        // Floor Plan Spatial Matrix View (Grouped by Building)
+        if (!filteredRooms.length) {
+          viewContainer.innerHTML = `
+            <div class="card p-8 text-center">
+              <i data-lucide="door-closed" style="width:36px;height:36px;margin:0 auto var(--space-2);color:var(--color-gray-400);"></i>
+              <h4 class="font-bold">No Examination Rooms Match Filters</h4>
+              <p class="text-xs text-muted mt-1">Try resetting the building or status filter above, or create a new room.</p>
+              <button class="btn btn-secondary btn-sm mt-3" onclick="AdminModule.renderNewRoomModal()">Add Examination Room</button>
+            </div>
+          `;
+          if (window.lucide) window.lucide.createIcons({ nodes: [viewContainer] });
+          return;
+        }
+
+        // Group rooms by building
+        const groups = new Map();
+        filteredRooms.forEach(rm => {
+          const bldg = rm.building || 'Main Academic Complex';
+          if (!groups.has(bldg)) groups.set(bldg, []);
+          groups.get(bldg).push(rm);
+        });
+
+        let matrixHtml = '';
+        groups.forEach((bldgRooms, bldgName) => {
+          matrixHtml += `
+            <div class="card mb-6">
+              <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                  <h3 class="card-title">${UI.escapeHtml(bldgName)}</h3>
+                  <div class="text-xs text-muted">${bldgRooms.length} Examination Venue(s) Active</div>
+                </div>
+                <span class="badge badge-normal text-xs font-semibold">${bldgRooms.reduce((acc, r) => acc + (r.capacity || 0), 0)} Total Desks</span>
               </div>
-            ` : ''}
+              <div class="card-body">
+                <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(290px, 1fr));gap:var(--space-4);">
+                  ${bldgRooms.map(rm => {
+                    const roomIncidents = activeIncidents.filter(i => i.roomId === rm.id);
+                    const hasCritical = roomIncidents.some(i => i.priority === 'critical');
+                    const invigName = rm.invigilatorId ? (userMap.get(rm.invigilatorId) || 'Faculty Assigned') : 'Unassigned';
+
+                    // Calculate live occupancy
+                    let assignedCount = 0;
+                    let presentCount = 0;
+                    Object.entries(assignmentsMap).forEach(([asgnId, asgn]) => {
+                      if (asgn.roomId === rm.id) {
+                        assignedCount++;
+                        const att = attendanceMap[asgnId];
+                        if (att && att.status === 'present') presentCount++;
+                      }
+                    });
+                    const cap = rm.capacity || (rm.rows * rm.columns) || 30;
+                    const occPct = cap > 0 ? Math.round((presentCount / cap) * 100) : 0;
+
+                    let borderTop = '3px solid var(--color-green-600)';
+                    if (roomIncidents.length > 0) borderTop = '3px solid var(--color-critical)';
+                    else if (rm.status === 'preparing') borderTop = '3px solid var(--color-warning)';
+                    else if (rm.status === 'not-ready') borderTop = '3px solid var(--border-color)';
+
+                    return `
+                      <div class="card p-4" style="border-top:${borderTop};background:var(--color-white);cursor:pointer;transition:transform 0.15s ease, box-shadow 0.15s ease;"
+                           onmouseover="this.style.boxShadow='var(--shadow-md)';this.style.transform='translateY(-2px)';"
+                           onmouseout="this.style.boxShadow='var(--shadow-sm)';this.style.transform='none';"
+                           onclick="AdminModule.openRoomInspectorModal('${rm.id}')">
+                        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:var(--space-3);">
+                          <div>
+                            <div style="display:flex;align-items:center;gap:6px;">
+                              <span class="status-dot ${roomIncidents.length > 0 ? 'critical' : (rm.status === 'ready' ? 'present' : 'unmarked')}"></span>
+                              <h4 class="font-bold text-base text-black">Room ${UI.escapeHtml(rm.name)}</h4>
+                            </div>
+                            <div class="text-xs text-muted mt-0.5">Block ${UI.escapeHtml(rm.block || 'A')} · Grid: ${rm.rows || 5} × ${rm.columns || 6}</div>
+                          </div>
+                          ${roomIncidents.length > 0 ? `
+                            <span class="badge ${hasCritical ? 'badge-critical' : 'badge-warning'} text-xs font-bold">
+                              ${roomIncidents.length} Alert(s)
+                            </span>
+                          ` : UI.statusBadge(rm.status || 'ready')}
+                        </div>
+
+                        <!-- Occupancy & Verification Gauge -->
+                        <div style="background:var(--color-off-white);padding:var(--space-2) var(--space-3);border-radius:var(--radius-sm);margin-bottom:var(--space-3);border:1px solid var(--border-subtle);">
+                          <div style="display:flex;justify-content:space-between;font-size:var(--text-xs);margin-bottom:4px;">
+                            <span class="text-muted">Attendance Verified</span>
+                            <span class="font-bold mono">${presentCount} / ${cap} (${occPct}%)</span>
+                          </div>
+                          <div class="progress-bar">
+                            <div class="progress-fill ${occPct < 50 ? 'medium' : ''}" style="width:${occPct}%;"></div>
+                          </div>
+                        </div>
+
+                        <!-- Invigilator & Actions Row -->
+                        <div style="display:flex;justify-content:space-between;align-items:center;font-size:var(--text-xs);padding-top:var(--space-2);border-top:1px solid var(--border-subtle);">
+                          <div style="display:flex;align-items:center;gap:4px;">
+                            <i data-lucide="user-check" style="width:13px;height:13px;color:var(--color-gray-500);"></i>
+                            <span class="text-muted truncate" style="max-width:140px;">${UI.escapeHtml(invigName)}</span>
+                          </div>
+                          <span class="font-semibold text-xs" style="color:var(--color-green-700);">
+                            Inspect Seating & Roll &rarr;
+                          </span>
+                        </div>
+                      </div>
+                    `;
+                  }).join('')}
+                </div>
+              </div>
+            </div>
+          `;
+        });
+
+        viewContainer.innerHTML = matrixHtml;
+        if (window.lucide) window.lucide.createIcons({ nodes: [viewContainer] });
+        return;
+      }
+
+      if (this.activeRoomControlView === 'cards') {
+        // Venue Intelligence Cards View
+        if (!filteredRooms.length) {
+          viewContainer.innerHTML = `<div class="card p-8 text-center text-xs text-muted">No rooms match filter criteria.</div>`;
+          return;
+        }
+
+        viewContainer.innerHTML = `
+          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(290px, 1fr));gap:var(--space-4);">
+            ${filteredRooms.map(rm => {
+              const cl = checklists[rm.id] || {};
+              const score = ReadinessCalc.calculate(cl);
+              const roomIncidents = activeIncidents.filter(i => i.roomId === rm.id);
+              const invigName = rm.invigilatorId ? (userMap.get(rm.invigilatorId) || 'Faculty Assigned') : 'Unassigned';
+
+              return `
+                <div class="card" style="border-top:3px solid ${roomIncidents.length > 0 ? 'var(--color-critical)' : 'var(--color-green-600)'};cursor:pointer;" onclick="AdminModule.openRoomInspectorModal('${rm.id}')">
+                  <div class="card-header">
+                    <h4 class="font-bold text-sm">Room ${UI.escapeHtml(rm.name)}</h4>
+                    ${UI.statusBadge(roomIncidents.length > 0 ? 'assistance' : (rm.status || 'ready'))}
+                  </div>
+                  <div class="card-body">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-2);font-size:var(--text-xs);margin-bottom:var(--space-3);">
+                      <div><span class="text-muted">Building:</span> <span class="font-semibold">${UI.escapeHtml(rm.building || 'Main Block')}</span></div>
+                      <div><span class="text-muted">Capacity:</span> <span class="font-semibold mono">${rm.capacity || 30} Seats</span></div>
+                      <div><span class="text-muted">Invigilator:</span> <span class="font-semibold">${UI.escapeHtml(invigName)}</span></div>
+                      <div><span class="text-muted">Incidents:</span> <span class="font-semibold" style="color:${roomIncidents.length > 0 ? 'var(--color-critical)' : 'inherit'};">${roomIncidents.length} active</span></div>
+                    </div>
+
+                    <div style="display:flex;justify-content:space-between;align-items:center;font-size:var(--text-xs);margin-bottom:var(--space-1);">
+                      <span class="text-muted">Readiness Score</span>
+                      <span class="font-bold mono">${score}%</span>
+                    </div>
+                    <div class="progress-bar mb-3">
+                      <div class="progress-fill ${score < 50 ? 'low' : ''}" style="width:${score}%;"></div>
+                    </div>
+
+                    <button class="btn btn-secondary btn-sm btn-full">
+                      Inspect Seating & Roll &rarr;
+                    </button>
+                  </div>
+                </div>
+              `;
+            }).join('')}
           </div>
         `;
-      }).join('');
-
-      // Render Intelligence Grid Cards
-      intelGrid.innerHTML = `
-        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:var(--space-4);">
-          ${allRooms.map(rm => {
-            const cl = checklists[rm.id] || {};
-            const score = ReadinessCalc.calculate(cl);
-            const roomIncidents = activeIncidents.filter(i => i.roomId === rm.id);
-            const invigName = rm.invigilatorId ? (userMap.get(rm.invigilatorId) || 'Faculty Assigned') : 'Unassigned';
-
-            return `
-              <div class="card" style="border-top:3px solid ${roomIncidents.length > 0 ? 'var(--color-critical)' : 'var(--color-green-600)'};cursor:pointer;" onclick="AdminModule.openRoomInspectorModal('${rm.id}')">
-                <div class="card-header">
-                  <h4 class="font-bold text-sm">Room ${UI.escapeHtml(rm.name)}</h4>
-                  ${UI.statusBadge(roomIncidents.length > 0 ? 'assistance' : (rm.status || 'ready'))}
-                </div>
-                <div class="card-body">
-                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-2);font-size:var(--text-xs);margin-bottom:var(--space-3);">
-                    <div><span class="text-muted">Building:</span> <span class="font-semibold">${UI.escapeHtml(rm.building || 'Main Block')}</span></div>
-                    <div><span class="text-muted">Capacity:</span> <span class="font-semibold mono">${rm.capacity} Seats</span></div>
-                    <div><span class="text-muted">Invigilator:</span> <span class="font-semibold">${UI.escapeHtml(invigName)}</span></div>
-                    <div><span class="text-muted">Incidents:</span> <span class="font-semibold" style="color:${roomIncidents.length > 0 ? 'var(--color-critical)' : 'inherit'};">${roomIncidents.length} active</span></div>
-                  </div>
-
-                  <div style="display:flex;justify-content:space-between;align-items:center;font-size:var(--text-xs);margin-bottom:var(--space-1);">
-                    <span class="text-muted">Readiness Score</span>
-                    <span class="font-bold mono">${score}%</span>
-                  </div>
-                  <div class="progress-bar mb-3">
-                    <div class="progress-fill ${score < 50 ? 'low' : ''}" style="width:${score}%;"></div>
-                  </div>
-
-                  <button class="btn btn-secondary btn-sm btn-full">
-                    Inspect Room Seating & Roll &rarr;
-                  </button>
-                </div>
-              </div>
-            `;
-          }).join('')}
-        </div>
-      `;
+        if (window.lucide) window.lucide.createIcons({ nodes: [viewContainer] });
+      }
     };
 
-    updateVisualization();
+    // Initial render
+    await renderActiveView();
 
-    const unsub = Database.listen(DB.rooms(), () => updateVisualization());
-    const unsubInc = Database.listen(DB.incidents(), () => updateVisualization());
-    ActiveListeners.add(unsub);
+    // Attach real-time listeners for live updates
+    const unsubRooms = Database.listen(DB.rooms(), () => renderActiveView());
+    const unsubInc = Database.listen(DB.incidents(), () => renderActiveView());
+    const unsubAtt = Database.listen(DB.attendance(activeExamId), () => renderActiveView());
+
+    ActiveListeners.add(unsubRooms);
     ActiveListeners.add(unsubInc);
+    ActiveListeners.add(unsubAtt);
   },
 
-  // Modal: Full Room Intelligence Inspector
+  // Modal: Comprehensive Full Room Intelligence Inspector
   async openRoomInspectorModal(roomId) {
     const room = await Database.get(DB.room(roomId));
-    if (!room) return;
+    if (!room) {
+      UI.toast('Room not found', 'error');
+      return;
+    }
 
     const settings = await Database.get(DB.settings()) || {};
     const activeExamId = settings.activeExamId || 'exam_001';
     const stats = await AttendanceHelper.getAttendanceStats(activeExamId, roomId);
-    const checklist = await Database.get(DB.roomChecklist(roomId)) || {};
-    const score = ReadinessCalc.calculate(checklist);
+    let checklist = await Database.get(DB.roomChecklist(roomId)) || {};
+    let score = ReadinessCalc.calculate(checklist);
+
+    const users = await Database.getList(DB.users());
+    const userMap = new Map(users.map(u => [u.id, u.name]));
+    const invigName = room.invigilatorId ? (userMap.get(room.invigilatorId) || 'Faculty Assigned') : 'Unassigned';
 
     const modalBody = `
-      <div>
-        <div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:var(--space-2);margin-bottom:var(--space-4);">
+      <div id="inspector-modal-wrapper">
+        <!-- Room Status & Quick Actions Bar -->
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:var(--space-2);background:var(--color-off-white);padding:var(--space-3);border-radius:var(--radius-sm);margin-bottom:var(--space-4);border:1px solid var(--border-subtle);">
+          <div>
+            <div class="text-xs text-muted">${UI.escapeHtml(room.building || 'Main Academic Block')} · Block ${UI.escapeHtml(room.block || 'A')}</div>
+            <div class="text-xs font-semibold mt-0.5">Faculty: <span style="color:var(--color-charcoal);">${UI.escapeHtml(invigName)}</span></div>
+          </div>
+          <div style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap;">
+            <button class="btn btn-secondary btn-sm text-xs" id="btn-toggle-room-ready">
+              ${room.status === 'ready' ? '<i data-lucide="clock"></i> Mark Preparing' : '<i data-lucide="check-circle"></i> Mark Ready'}
+            </button>
+            <button class="btn btn-secondary btn-sm text-xs" onclick="AdminModule.renderAssignInvigilatorModal('${room.id}')">
+              <i data-lucide="user-check"></i> Assign Faculty
+            </button>
+            <button class="btn btn-danger btn-sm text-xs" onclick="AdminModule.renderNewIncidentModal('${room.id}')">
+              <i data-lucide="alert-triangle"></i> Dispatch Alert
+            </button>
+          </div>
+        </div>
+
+        <!-- 4-Pillar Stat Cards -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(110px, 1fr));gap:var(--space-2);margin-bottom:var(--space-4);">
           <div class="stat-card p-3">
-            <div class="stat-label text-xs">Capacity</div>
-            <div class="stat-value text-lg mono">${room.capacity}</div>
+            <div class="stat-label text-xs">Total Capacity</div>
+            <div class="stat-value text-lg mono">${room.capacity || (room.rows * room.columns) || 30}</div>
           </div>
           <div class="stat-card p-3 stat-success">
-            <div class="stat-label text-xs">Present</div>
+            <div class="stat-label text-xs">Verified Present</div>
             <div class="stat-value text-lg mono" style="color:var(--color-green-600);">${stats.present}</div>
           </div>
           <div class="stat-card p-3 stat-critical">
-            <div class="stat-label text-xs">Absent</div>
+            <div class="stat-label text-xs">Marked Absent</div>
             <div class="stat-value text-lg mono" style="color:var(--color-critical);">${stats.absent}</div>
           </div>
           <div class="stat-card p-3">
-            <div class="stat-label text-xs">Readiness</div>
-            <div class="stat-value text-lg mono">${score}%</div>
+            <div class="stat-label text-xs">Readiness Score</div>
+            <div class="stat-value text-lg mono" id="inspector-readiness-val">${score}%</div>
           </div>
         </div>
 
+        <!-- Inspector Tabs -->
         <div class="tabs mb-4">
-          <button class="tab active" id="modal-tab-roll">Attendance Roll</button>
-          <button class="tab" id="modal-tab-checklist">Checklist</button>
+          <button class="tab active" id="modal-tab-matrix">Seating Grid</button>
+          <button class="tab" id="modal-tab-roll">Attendance Roll</button>
+          <button class="tab" id="modal-tab-checklist">Readiness Checklist</button>
         </div>
 
-        <div id="modal-tab-content">
+        <!-- Dynamic Content Body -->
+        <div id="inspector-tab-content" style="min-height:280px;">
           <!-- Loaded dynamically -->
         </div>
       </div>
@@ -1343,38 +2464,268 @@ const AdminModule = {
 
     UI.showModal(`Room Intelligence: Room ${room.name}`, modalBody);
 
+    const tabMatrix = document.getElementById('modal-tab-matrix');
     const tabRoll = document.getElementById('modal-tab-roll');
     const tabCheck = document.getElementById('modal-tab-checklist');
-    const tabContent = document.getElementById('modal-tab-content');
+    const tabContent = document.getElementById('inspector-tab-content');
+    const btnToggleReady = document.getElementById('btn-toggle-room-ready');
 
-    const showRoll = () => {
-      tabRoll.classList.add('active');
+    // Toggle Room Status Handler
+    if (btnToggleReady) {
+      btnToggleReady.onclick = async () => {
+        const nextStatus = room.status === 'ready' ? 'preparing' : 'ready';
+        await Database.update(DB.room(room.id), {
+          status: nextStatus,
+          updatedAt: DB.serverTimestamp()
+        });
+        room.status = nextStatus;
+        UI.toast(`Room status updated to ${nextStatus}`, 'success');
+        UI.closeModal();
+        AdminModule.renderRoomControlCenter();
+      };
+    }
+
+    // 1. Tab: Desk Seating Matrix
+    const showSeatingMatrix = async () => {
+      tabMatrix.classList.add('active');
+      tabRoll.classList.remove('active');
       tabCheck.classList.remove('active');
-      AttendanceHelper.renderAttendanceTable(activeExamId, roomId, tabContent, { canEdit: false });
+
+      tabContent.innerHTML = '<div class="text-xs text-muted">Loading seating matrix...</div>';
+
+      const assignmentsMap = await Database.get(DB.assignments(activeExamId)) || {};
+      const attendanceMap = await Database.get(DB.attendance(activeExamId)) || {};
+      const usersMap = await Database.get(DB.users()) || {};
+
+      const seatMap = {};
+      Object.entries(assignmentsMap).forEach(([asgnId, asgn]) => {
+        if (asgn.roomId === room.id && asgn.seatNumber) {
+          const att = attendanceMap[asgnId] || { status: 'unmarked' };
+          const std = usersMap[asgn.studentId] || {};
+          seatMap[asgn.seatNumber] = {
+            assignmentId: asgnId,
+            student: std,
+            status: att.status
+          };
+        }
+      });
+
+      const rows = room.rows || 5;
+      const cols = room.columns || 6;
+
+      let gridHtml = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-2);font-size:var(--text-xs);">
+          <div style="display:flex;gap:var(--space-2);align-items:center;">
+            <span class="legend-pill"><span class="legend-dot status-ready"></span> Present</span>
+            <span class="legend-pill"><span class="legend-dot status-alert"></span> Absent</span>
+            <span class="legend-pill"><span class="legend-dot status-prep"></span> Unmarked</span>
+            <span class="legend-pill"><span class="legend-dot" style="background:#cbd5e1;"></span> Empty</span>
+          </div>
+          <span class="mono text-muted">${rows} Rows × ${cols} Columns</span>
+        </div>
+
+        <div class="modal-desk-grid" style="grid-template-columns:repeat(${cols}, 1fr);">
+      `;
+
+      for (let r = 0; r < rows; r++) {
+        const rowChar = String.fromCharCode(65 + r);
+        for (let c = 1; c <= cols; c++) {
+          const seatId = `${rowChar}${c}`;
+          const seatData = seatMap[seatId];
+
+          let seatClass = 'empty';
+          let tooltip = `Desk ${seatId}: Empty`;
+
+          if (seatData) {
+            if (seatData.status === 'present') seatClass = 'present';
+            else if (seatData.status === 'absent') seatClass = 'absent';
+            else seatClass = 'assigned';
+            tooltip = `Desk ${seatId}: ${seatData.student.name || 'Candidate'} (${seatData.status})`;
+          }
+
+          gridHtml += `
+            <div class="desk-item ${seatClass}" data-seat-id="${seatId}" title="${UI.escapeHtml(tooltip)}">
+              <span class="mono font-bold" style="font-size:0.6875rem;">${seatId}</span>
+              ${seatData ? `<span class="truncate" style="font-size:0.5625rem;max-width:100%;">${UI.escapeHtml(seatData.student.name ? seatData.student.name.split(' ')[0] : 'Assigned')}</span>` : ''}
+            </div>
+          `;
+        }
+      }
+
+      gridHtml += `</div><div id="inspector-seat-detail" class="mt-3"></div>`;
+      tabContent.innerHTML = gridHtml;
+
+      // Click on desk shows candidate dossier
+      tabContent.querySelectorAll('.desk-item').forEach(desk => {
+        desk.onclick = () => {
+          const seatId = desk.dataset.seatId;
+          const data = seatMap[seatId];
+          const detailEl = document.getElementById('inspector-seat-detail');
+
+          if (!data) {
+            detailEl.innerHTML = `
+              <div class="card p-3 text-xs text-muted" style="background:var(--color-off-white);">
+                <strong>Desk ${seatId}:</strong> Unassigned seat. Available for emergency relocation.
+              </div>
+            `;
+          } else {
+            detailEl.innerHTML = `
+              <div class="card p-3" style="background:var(--color-off-white);border-left:3px solid var(--color-green-600);">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <div>
+                    <div class="font-bold text-sm">${UI.escapeHtml(data.student.name || 'Candidate')}</div>
+                    <div class="text-xs text-muted mt-0.5">Reg No: <span class="mono font-semibold">${UI.escapeHtml(data.student.registerNumber || '—')}</span> · Desk: <span class="mono font-bold">${seatId}</span></div>
+                  </div>
+                  ${UI.statusBadge(data.status)}
+                </div>
+              </div>
+            `;
+          }
+        };
+      });
     };
 
+    // 2. Tab: Attendance Roll
+    const showAttendanceRoll = () => {
+      tabRoll.classList.add('active');
+      tabMatrix.classList.remove('active');
+      tabCheck.classList.remove('active');
+      AttendanceHelper.renderAttendanceTable(activeExamId, room.id, tabContent, { canEdit: false });
+    };
+
+    // 3. Tab: Pre-Flight Readiness Checklist
     const showChecklist = () => {
       tabCheck.classList.add('active');
+      tabMatrix.classList.remove('active');
       tabRoll.classList.remove('active');
+
       tabContent.innerHTML = `
         <div style="display:flex;flex-direction:column;gap:var(--space-2);">
           ${ReadinessCalc.CHECKLIST_ITEMS.map(item => {
             const isDone = checklist[item.id] && checklist[item.id].completed;
             return `
-              <div style="display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) 0;border-bottom:1px solid var(--border-subtle);font-size:var(--text-xs);">
-                <i data-lucide="${isDone ? 'check-circle' : 'circle'}" style="width:16px;height:16px;color:${isDone ? 'var(--color-green-600)' : 'var(--color-gray-300)'};"></i>
-                <span class="${isDone ? 'line-through text-muted' : 'font-medium'}">${UI.escapeHtml(item.label)}</span>
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:var(--space-2) var(--space-3);background:var(--color-off-white);border-radius:var(--radius-sm);border:1px solid var(--border-subtle);font-size:var(--text-xs);">
+                <div style="display:flex;align-items:center;gap:var(--space-2);">
+                  <i data-lucide="${isDone ? 'check-circle' : 'circle'}" style="width:16px;height:16px;color:${isDone ? 'var(--color-green-600)' : 'var(--color-gray-400)'};"></i>
+                  <span class="${isDone ? 'font-semibold' : 'text-muted'}">${UI.escapeHtml(item.label)}</span>
+                </div>
+                <button class="btn btn-sm ${isDone ? 'btn-ghost text-xs' : 'btn-secondary text-xs'}" data-checklist-id="${item.id}">
+                  ${isDone ? 'Verified' : 'Mark Done'}
+                </button>
               </div>
             `;
           }).join('')}
         </div>
       `;
-      lucide.createIcons({ nodes: [tabContent] });
+      if (window.lucide) window.lucide.createIcons({ nodes: [tabContent] });
+
+      // Admin toggle checklist items
+      tabContent.querySelectorAll('button[data-checklist-id]').forEach(btn => {
+        btn.onclick = async () => {
+          const itemId = btn.dataset.checklistId;
+          const curr = checklist[itemId] && checklist[itemId].completed;
+          const updatedItem = {
+            completed: !curr,
+            updatedBy: Auth.getUid(),
+            updatedAt: Date.now()
+          };
+
+          await Database.update(DB.roomChecklist(room.id), {
+            [itemId]: updatedItem
+          });
+
+          checklist[itemId] = updatedItem;
+          score = ReadinessCalc.calculate(checklist);
+          const scoreEl = document.getElementById('inspector-readiness-val');
+          if (scoreEl) scoreEl.textContent = `${score}%`;
+          showChecklist();
+        };
+      });
     };
 
-    tabRoll.onclick = showRoll;
+    tabMatrix.onclick = showSeatingMatrix;
+    tabRoll.onclick = showAttendanceRoll;
     tabCheck.onclick = showChecklist;
-    showRoll();
+
+    // Default to Seating Grid tab
+    showSeatingMatrix();
+  },
+
+  // Modal: Dispatch Administrative Room Incident / Alert
+  async renderNewIncidentModal(roomId = '') {
+    const rooms = await Database.getList(DB.rooms());
+    const settings = await Database.get(DB.settings()) || {};
+    const activeExamId = settings.activeExamId || 'exam_001';
+
+    const modalHtml = `
+      <form id="admin-new-incident-form">
+        <p class="text-xs text-muted mb-3">Broadcast an emergency incident or operational assistance dispatch to the invigilator and emergency teams.</p>
+        
+        <div class="form-group">
+          <label class="form-label">Affected Room / Venue <span class="required">*</span></label>
+          <select id="inc-room-select" class="form-select" required>
+            <option value="">-- Select Examination Room --</option>
+            ${rooms.map(r => `
+              <option value="${r.id}" ${r.id === roomId ? 'selected' : ''}>Room ${UI.escapeHtml(r.name)} (${UI.escapeHtml(r.building || 'Main Block')})</option>
+            `).join('')}
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Incident Category <span class="required">*</span></label>
+          <select id="inc-category-select" class="form-select" required>
+            <option value="medical">Medical Distress / First Aid (Critical)</option>
+            <option value="stationery">Question Paper / Stationery Shortage (High)</option>
+            <option value="wrong_room">Seating Conflict / Unauthorized Desk (High)</option>
+            <option value="admit_card">Admit Card / Identity Verification (Medium)</option>
+            <option value="room_issue">Infrastructure / Lighting / Power (Medium)</option>
+            <option value="other">General Operational Query (Low)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Detailed Incident Situation <span class="required">*</span></label>
+          <textarea id="inc-description-input" class="form-textarea" rows="3" placeholder="Describe the immediate assistance or equipment required..." required></textarea>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:var(--space-2);margin-top:var(--space-4);">
+          <button type="button" class="btn btn-secondary" onclick="UI.closeModal()">Cancel</button>
+          <button type="submit" class="btn btn-danger">
+            <i data-lucide="send"></i> Dispatch Emergency Alert
+          </button>
+        </div>
+      </form>
+    `;
+
+    UI.showModal('Dispatch Room Emergency Alert', modalHtml);
+
+    document.getElementById('admin-new-incident-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const rId = document.getElementById('inc-room-select').value;
+      const cat = document.getElementById('inc-category-select').value;
+      const desc = document.getElementById('inc-description-input').value.trim();
+
+      if (!rId || !desc) return;
+
+      try {
+        await IncidentsHelper.createIncident({
+          roomId: rId,
+          category: cat,
+          description: desc,
+          examId: activeExamId,
+          studentId: Auth.getUid()
+        });
+
+        UI.closeModal();
+        UI.toast('Emergency incident dispatched and assigned', 'success');
+        if (AdminModule.activeRoomControlView) {
+          AdminModule.renderRoomControlCenter();
+        }
+      } catch (err) {
+        console.error('[Incident Dispatch] Error:', err);
+        UI.toast('Failed to dispatch alert: ' + err.message, 'error');
+      }
+    };
   },
 
   // 11. Reports & Examination Summary View

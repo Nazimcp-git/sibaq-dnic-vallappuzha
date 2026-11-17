@@ -182,7 +182,7 @@ const QRHelper = {
     if (this.currentScanner) {
       try {
         this.currentScanner.clear();
-      } catch (e) {}
+      } catch (e) { }
       this.currentScanner = null;
     }
   },

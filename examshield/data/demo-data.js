@@ -239,7 +239,7 @@ async function loadDemoData() {
       attendance.exam_001[assignId] = {
         status: state,
         markedBy: assignments.exam_001[assignId].roomId === 'room_A101' ? 'invig_001' :
-                  assignments.exam_001[assignId].roomId === 'room_A102' ? 'invig_002' : 'invig_003',
+          assignments.exam_001[assignId].roomId === 'room_A102' ? 'invig_002' : 'invig_003',
         markedAt: Date.now() - Math.floor(Math.random() * 3600000),
         updatedAt: Date.now()
       };

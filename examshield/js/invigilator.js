@@ -13,6 +13,9 @@ const InvigilatorModule = {
       case 'rooms':
         await this.renderRooms();
         break;
+      case 'campus-map':
+        await this.renderCampusMapView();
+        break;
       case 'scanner':
         await this.renderScanner();
         break;
@@ -932,6 +935,40 @@ const InvigilatorModule = {
     });
 
     ActiveListeners.add(unsub);
+  },
+
+  // 9. Campus Map View for Faculty
+  async renderCampusMapView() {
+    const myRooms = await this.getMyRooms();
+    const firstRoomId = myRooms.length > 0 ? myRooms[0].id : null;
+
+    const html = `
+      <div class="page-header">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:var(--space-2);">
+          <div>
+            <h2>Campus Spatial Map</h2>
+            <div class="page-subtitle">Examination buildings, invigilation stations, and medical dispatch points</div>
+          </div>
+          ${firstRoomId ? `
+            <button class="btn btn-secondary btn-sm" onclick="CampusMap.render('inv-campus-map-container', { highlightRoomId: '${firstRoomId}', canInspect: false })">
+              <i data-lucide="crosshair"></i> Focus Assigned Room
+            </button>
+          ` : ''}
+        </div>
+      </div>
+
+      <div class="card mb-6">
+        <div class="card-body p-0" id="inv-campus-map-container">
+          <!-- Rendered by CampusMap -->
+        </div>
+      </div>
+    `;
+
+    UI.renderPage(html);
+    await CampusMap.render(document.getElementById('inv-campus-map-container'), {
+      highlightRoomId: firstRoomId,
+      canInspect: false
+    });
   }
 };
 

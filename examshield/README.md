@@ -169,6 +169,8 @@ firebase deploy
 ```
 examshield/
 ├── index.html              Main SPA shell
+├── setup.html              Account provisioning & 1-click test seeder
+├── register.html           Invigilator/Candidate invitation onboarding
 ├── manifest.json           PWA manifest
 ├── sw.js                   Service worker
 ├── offline.html            Offline fallback
@@ -179,17 +181,18 @@ examshield/
 ├── css/
 │   └── styles.css          Design system
 ├── js/
+│   ├── icons.js            Built-in Lucide vector icon engine
 │   ├── firebase.js         Firebase initialization
 │   ├── database.js         Database helpers & engines
 │   ├── auth.js             Authentication
 │   ├── router.js           SPA routing & navigation
-│   ├── student.js          Student module
-│   ├── invigilator.js      Invigilator module
-│   ├── admin.js            Admin module
-│   ├── incidents.js        Shared incident helpers
+│   ├── student.js          Student module (Seat Finder, QR Pass, Profile)
+│   ├── invigilator.js      Invigilator module (Scanner, Roll, Seat Map)
+│   ├── admin.js            Admin module (Students CRUD, Invigilators, Rooms)
+│   ├── incidents.js        Shared incident helpers & triage
 │   ├── attendance.js       Attendance helpers
 │   ├── qr.js               QR generation & scanning
-│   ├── announcements.js    Announcement helpers
+│   ├── announcements.js    Announcement & Notification Center helpers
 │   ├── csv-import.js       CSV/XLSX import
 │   ├── whatsapp.js         WhatsApp click-to-chat
 │   └── offline.js          Offline support & sync

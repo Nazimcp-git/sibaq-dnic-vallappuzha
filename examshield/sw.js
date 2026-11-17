@@ -5,6 +5,7 @@ const STATIC_ASSETS = [
   './',
   './index.html',
   './setup.html',
+  './register.html',
   './offline.html',
   './manifest.json',
   './css/styles.css',

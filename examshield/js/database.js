@@ -149,10 +149,11 @@ const UI = {
   },
 
   // Show modal
-  showModal(title, contentHtml, footerHtml) {
+  showModal(title, contentHtml, footerHtml, options = {}) {
     const overlay = document.getElementById('modal-overlay');
+    const isLarge = (options && (options.size === 'lg' || options.large)) || title.includes('Campus Map') || title.includes('Room Intelligence');
     overlay.innerHTML = `
-      <div class="modal">
+      <div class="modal ${isLarge ? 'modal-lg' : ''}">
         <div class="modal-header">
           <h3>${this.escapeHtml(title)}</h3>
           <button class="modal-close" onclick="UI.closeModal()">

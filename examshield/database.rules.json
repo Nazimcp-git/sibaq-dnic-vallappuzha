@@ -62,6 +62,13 @@
         "$uid": {
           ".write": "auth != null && (root.child('examshield/users/' + auth.uid + '/role').val() === 'admin' || auth.uid === $uid)"
         }
+      },
+
+      "invitations": {
+        ".read": true,
+        "$inviteId": {
+          ".write": true
+        }
       }
     }
   }

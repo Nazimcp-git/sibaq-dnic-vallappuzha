@@ -12,6 +12,7 @@ const Router = {
       ]},
       { section: 'Examination', items: [
         { id: 'student-seat', label: 'Seat Finder', icon: 'map-pin', route: 'student/seat-finder' },
+        { id: 'student-campus-map', label: 'Campus Map', icon: 'map', route: 'student/campus-map' },
         { id: 'student-qr', label: 'QR Exam Pass', icon: 'qr-code', route: 'student/qr-pass' },
         { id: 'student-attendance', label: 'Attendance', icon: 'check-square', route: 'student/attendance' },
       ]},
@@ -19,6 +20,9 @@ const Router = {
         { id: 'student-help', label: 'Emergency Help', icon: 'life-buoy', route: 'student/help-desk' },
         { id: 'student-incidents', label: 'My Incidents', icon: 'file-text', route: 'student/incidents' },
         { id: 'student-announcements', label: 'Announcements', icon: 'megaphone', route: 'student/announcements' },
+      ]},
+      { section: 'Account', items: [
+        { id: 'student-profile', label: 'Candidate Profile', icon: 'user', route: 'student/profile' },
       ]},
     ],
     invigilator: [
@@ -203,8 +207,9 @@ const Router = {
             </button>
             <span class="header-title" id="header-title">ExamShield</span>
             <div class="header-actions">
-              <button class="btn btn-ghost btn-sm" onclick="Router.navigate('${role}/announcements')" title="Announcements">
+              <button class="btn btn-ghost btn-sm" id="header-notif-btn" onclick="AnnouncementsHelper.openNotificationDrawer()" title="Notification Center" style="position:relative;padding:var(--space-2);">
                 <i data-lucide="bell" style="width:18px;height:18px;"></i>
+                <span id="header-unread-badge" style="display:none;position:absolute;top:2px;right:2px;background:var(--color-critical);color:white;font-size:0.625rem;font-weight:700;padding:1px 5px;border-radius:9999px;line-height:1.2;box-shadow:0 0 0 2px var(--color-white);">0</span>
               </button>
             </div>
           </header>
@@ -223,6 +228,11 @@ const Router = {
     `;
 
     lucide.createIcons();
+
+    // Initialize notification center badge & live alert listener
+    if (typeof AnnouncementsHelper !== 'undefined' && AnnouncementsHelper.initNotificationSystem) {
+      AnnouncementsHelper.initNotificationSystem();
+    }
 
     // Sidebar overlay close
     document.getElementById('sidebar-overlay').addEventListener('click', () => this.closeSidebar());

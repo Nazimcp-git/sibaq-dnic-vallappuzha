@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Accept Invitation — ExamShield</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      corePlugins: { preflight: false },
+      theme: { extend: { fontFamily: { sans: ['Inter', 'sans-serif'] } } }
+    };
+  </script>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="css/styles.css">
+
+  <!-- Firebase v8 SDK -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+
+  <!-- Lucide Icons -->
+  <script src="js/icons.js"></script>
+
+  <style>
+    .register-card {
+      background: var(--color-white);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: var(--space-8);
+      width: 100%;
+      max-width: 480px;
+      box-shadow: var(--shadow-sm);
+    }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-900 min-h-screen flex items-center justify-center p-4">
+
+  <div class="register-card" id="reg-main-box">
+    <div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-6);">
+      <div style="width:36px;height:36px;background:var(--color-green-600);border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;color:white;">
+        <i data-lucide="shield-check" style="width:20px;height:20px;"></i>
+      </div>
+      <div>
+        <h1 style="font-size:1.25rem;font-weight:700;color:var(--color-black);letter-spacing:-0.02em;">ExamShield</h1>
+        <div style="font-size:0.75rem;color:var(--color-gray-500);">Invigilator & Candidate Onboarding</div>
+      </div>
+    </div>
+
+    <div id="reg-content">
+      <div class="empty-state py-8">
+        <div class="loading-spinner" style="margin:0 auto var(--space-3);"></div>
+        <p class="text-xs text-muted">Verifying appointment invitation...</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Scripts -->
+  <script src="js/firebase.js"></script>
+  <script src="js/database.js"></script>
+
+  <script>
+    (async function init() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const inviteId = urlParams.get('invite') || urlParams.get('token');
+      const box = document.getElementById('reg-content');
+
+      if (!inviteId) {
+        box.innerHTML = `
+          <div class="text-center">
+            <i data-lucide="mail" style="width:40px;height:40px;color:var(--color-gray-400);margin:0 auto var(--space-3);display:block;"></i>
+            <h3 class="font-bold text-base mb-1">Invitation Link Required</h3>
+            <p class="text-xs text-muted mb-4 leading-relaxed">
+              Please click the unique appointment link provided by your examination controller via email or WhatsApp.
+            </p>
+            <div class="form-group text-left">
+              <label class="form-label text-xs">Have an invitation code?</label>
+              <div style="display:flex;gap:var(--space-2);">
+                <input type="text" id="manual-invite-code" class="form-input text-xs mono" placeholder="e.g. inv_abcdef123456">
+                <button class="btn btn-primary btn-sm" id="btn-submit-code">Verify</button>
+              </div>
+            </div>
+            <div class="mt-4 pt-4 border-t border-gray-200">
+              <a href="index.html" class="text-xs font-semibold text-green-600">Return to Login &rarr;</a>
+            </div>
+          </div>
+        `;
+        lucide.createIcons();
+
+        document.getElementById('btn-submit-code').onclick = () => {
+          const code = document.getElementById('manual-invite-code').value.trim();
+          if (code) {
+            window.location.href = `register.html?invite=${encodeURIComponent(code)}`;
+          }
+        };
+        return;
+      }
+
+      try {
+        const invite = await Database.get(DB.invitation(inviteId));
+
+        if (!invite) {
+          box.innerHTML = `
+            <div class="text-center">
+              <i data-lucide="alert-circle" style="width:40px;height:40px;color:var(--color-critical);margin:0 auto var(--space-3);display:block;"></i>
+              <h3 class="font-bold text-base mb-1">Invalid or Expired Invitation</h3>
+              <p class="text-xs text-muted mb-6 leading-relaxed">
+                This invitation code does not exist or has expired. Please contact your examination administrator.
+              </p>
+              <a href="index.html" class="btn btn-secondary btn-full btn-sm">Return to Login</a>
+            </div>
+          `;
+          lucide.createIcons();
+          return;
+        }
+
+        if (invite.status === 'accepted') {
+          box.innerHTML = `
+            <div class="text-center">
+              <i data-lucide="check-circle" style="width:40px;height:40px;color:var(--color-green-600);margin:0 auto var(--space-3);display:block;"></i>
+              <h3 class="font-bold text-base mb-1">Invitation Already Activated</h3>
+              <p class="text-xs text-muted mb-6 leading-relaxed">
+                The account for <strong>${UI.escapeHtml(invite.email)}</strong> is already active. You can log in using your password.
+              </p>
+              <a href="index.html" class="btn btn-primary btn-full">Proceed to Sign In</a>
+            </div>
+          `;
+          lucide.createIcons();
+          return;
+        }
+
+        // Render Onboarding Form
+        const isInvigilator = invite.role === 'invigilator';
+
+        box.innerHTML = `
+          <div>
+            <div style="background:var(--color-green-50);border:1px solid var(--color-green-500);border-radius:var(--radius-sm);padding:var(--space-3);margin-bottom:var(--space-5);">
+              <div class="font-bold text-xs uppercase" style="color:var(--color-green-600);letter-spacing:0.05em;">
+                Official ${isInvigilator ? 'Invigilator Appointment' : 'Candidate Registration'}
+              </div>
+              <div class="font-semibold text-sm mt-1">${UI.escapeHtml(invite.name)}</div>
+              <div class="text-xs text-muted mt-1">
+                ${isInvigilator ? `Assigned to supervise: <strong>${UI.escapeHtml(invite.assignedRoomName || invite.assignedRoom || 'Examination Hall')}</strong>` : `Class Batch: <strong>${UI.escapeHtml(invite.classId || 'Standard')}</strong>`}
+              </div>
+            </div>
+
+            <form id="complete-reg-form">
+              <div class="form-group">
+                <label class="form-label text-xs">Official Email Address</label>
+                <input type="email" class="form-input bg-gray-100" value="${UI.escapeHtml(invite.email)}" readonly disabled>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label text-xs">Create Password <span class="required">*</span></label>
+                <input type="password" id="reg-password" class="form-input" placeholder="Create a secure password" minlength="6" required autocomplete="new-password">
+                <div class="form-hint">At least 6 characters</div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label text-xs">Confirm Password <span class="required">*</span></label>
+                <input type="password" id="reg-confirm-password" class="form-input" placeholder="Repeat your password" minlength="6" required autocomplete="new-password">
+              </div>
+
+              <div id="reg-error" class="form-error mb-4" style="display:none;"></div>
+
+              <button type="submit" class="btn btn-primary btn-full btn-lg" id="btn-activate-account">
+                <i data-lucide="check"></i> Activate My Account
+              </button>
+            </form>
+          </div>
+        `;
+
+        lucide.createIcons();
+
+        document.getElementById('complete-reg-form').onsubmit = async (e) => {
+          e.preventDefault();
+          const btn = document.getElementById('btn-activate-account');
+          const errEl = document.getElementById('reg-error');
+          errEl.style.display = 'none';
+
+          const password = document.getElementById('reg-password').value;
+          const confirmPassword = document.getElementById('reg-confirm-password').value;
+
+          if (password !== confirmPassword) {
+            errEl.textContent = 'Passwords do not match.';
+            errEl.style.display = 'block';
+            return;
+          }
+
+          UI.setLoading(btn, true);
+
+          try {
+            // 1. Create account in Firebase Auth
+            const userCred = await firebase.auth().createUserWithEmailAndPassword(invite.email, password);
+            const uid = userCred.user.uid;
+
+            // 2. Write role record to database
+            const userData = {
+              id: uid,
+              name: invite.name,
+              email: invite.email,
+              role: invite.role,
+              phone: invite.phone || '',
+              active: true,
+              createdAt: DB.serverTimestamp()
+            };
+
+            if (isInvigilator) {
+              const assignedRoom = invite.assignedRoom || 'room_A101';
+              userData.assignedRooms = { [assignedRoom]: true };
+
+              await Database.set(DB.invigilator(uid), {
+                available: true,
+                activeIncidentCount: 0,
+                assignedRooms: { [assignedRoom]: true }
+              });
+
+              // Assign room invigilatorId
+              if (assignedRoom) {
+                await Database.update(DB.room(assignedRoom), {
+                  invigilatorId: uid,
+                  updatedAt: DB.serverTimestamp()
+                });
+              }
+            } else {
+              userData.registerNumber = invite.registerNumber || '';
+              userData.classId = invite.classId || 'CS-A';
+            }
+
+            await Database.set(DB.user(uid), userData);
+
+            // 3. Mark invitation as accepted
+            await Database.update(DB.invitation(inviteId), {
+              status: 'accepted',
+              acceptedByUid: uid,
+              acceptedAt: DB.serverTimestamp()
+            });
+
+            // 4. Render Success
+            box.innerHTML = `
+              <div class="text-center py-4">
+                <div style="width:48px;height:48px;border-radius:50%;background:var(--color-green-50);display:flex;align-items:center;justify-content:center;margin:0 auto var(--space-4);color:var(--color-green-600);">
+                  <i data-lucide="check" style="width:28px;height:28px;"></i>
+                </div>
+                <h3 class="font-bold text-lg mb-1">Account Activated Successfully!</h3>
+                <p class="text-xs text-muted mb-6 leading-relaxed">
+                  Welcome to ExamShield, <strong>${UI.escapeHtml(invite.name)}</strong>. Your ${invite.role} profile is confirmed and ready.
+                </p>
+                <a href="index.html" class="btn btn-primary btn-full btn-lg">
+                  Launch ${isInvigilator ? 'Invigilator' : 'Student'} Dashboard &rarr;
+                </a>
+              </div>
+            `;
+            lucide.createIcons();
+          } catch (err) {
+            console.error('[Registration] Account creation failed:', err);
+            let msg = err.message;
+            if (err.code === 'auth/email-already-in-use') {
+              msg = 'An account with this email already exists. Please log in or reset your password.';
+            }
+            errEl.textContent = msg;
+            errEl.style.display = 'block';
+            UI.setLoading(btn, false);
+          }
+        };
+      } catch (err) {
+        console.error('[Registration] Token verification error:', err);
+        box.innerHTML = `<p class="text-xs text-muted" style="color:var(--color-critical);">Network error: ${err.message}</p>`;
+      }
+    })();
+  </script>
+</body>
+</html>

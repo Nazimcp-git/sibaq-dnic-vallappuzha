@@ -49,6 +49,8 @@ const DB = {
   floor: (id) => db.ref('examshield/floors/' + id),
   roomSeats: (roomId) => db.ref('examshield/roomSeats/' + roomId),
   importLogs: () => db.ref('examshield/importLogs'),
+  invitations: () => db.ref('examshield/invitations'),
+  invitation: (id) => db.ref('examshield/invitations/' + id),
   settings: () => db.ref('examshield/settings'),
   serverTimestamp: () => firebase.database.ServerValue.TIMESTAMP
 };
