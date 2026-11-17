@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#16a34a">
+  <meta name="description" content="ExamShield — Examination Day Emergency Operating System">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="ExamShield">
+
+  <title>ExamShield</title>
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='16' fill='%2316a34a'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='bold'>ES</text></svg>">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS CDN (for utility classes) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      corePlugins: { preflight: false },
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] }
+        }
+      }
+    };
+  </script>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="css/styles.css">
+
+  <!-- Firebase v8 SDK -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+
+  <!-- Lucide Icons Vector Engine (Built-in + CDN) -->
+  <script src="js/icons.js"></script>
+  <script src="https://unpkg.com/lucide@latest" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.js';"></script>
+
+  <!-- QRCode.js -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+
+  <!-- html5-qrcode -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+  <!-- SheetJS -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <!-- Loading Screen -->
+  <div class="loading-screen" id="loading-screen">
+    <div class="loading-brand">
+      <div style="width:40px;height:40px;background:var(--color-green-600);border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;color:white;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>
+      </div>
+      <div>
+        <div style="font-size:1.25rem;font-weight:700;color:var(--color-black);letter-spacing:-0.02em;">ExamShield</div>
+        <div style="font-size:0.75rem;color:var(--color-gray-500);">Examination Command Center</div>
+      </div>
+    </div>
+    <div class="loading-spinner"></div>
+    <p class="loading-text">Initializing...</p>
+  </div>
+
+  <!-- App Container -->
+  <div id="app"></div>
+
+  <!-- Core Infrastructure & Helpers -->
+  <script src="js/firebase.js"></script>
+  <script src="js/database.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/incidents.js"></script>
+  <script src="js/attendance.js"></script>
+  <script src="js/qr.js"></script>
+  <script src="js/announcements.js"></script>
+  <script src="js/csv-import.js"></script>
+  <script src="js/whatsapp.js"></script>
+  <script src="js/offline.js"></script>
+
+  <!-- Role Modules & Router -->
+  <script src="js/student.js"></script>
+  <script src="js/invigilator.js"></script>
+  <script src="js/admin.js"></script>
+  <script src="js/router.js"></script>
+
+  <!-- Demo Data Ingestion (remove in production) -->
+  <script src="data/demo-data.js"></script>
+
+  <script>
+    // Boot ExamShield
+    (async function boot() {
+      try {
+        await Auth.init();
+        Router.init();
+
+        // Initialize offline support
+        if (typeof OfflineManager !== 'undefined') {
+          OfflineManager.init();
+        }
+
+        // Hide loading screen
+        const ls = document.getElementById('loading-screen');
+        ls.style.opacity = '0';
+        ls.style.transition = 'opacity 0.3s ease';
+        setTimeout(() => ls.remove(), 300);
+
+      } catch (err) {
+        console.error('[ExamShield] Boot failed:', err);
+        document.getElementById('loading-screen').querySelector('.loading-text').textContent =
+          'Failed to initialize. Check your Firebase configuration.';
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,68 @@
+{
+  "rules": {
+    "examshield": {
+      ".read": "auth != null",
+      ".write": "auth != null && root.child('examshield/users/' + auth.uid + '/role').val() === 'admin'",
+
+      "users": {
+        "$uid": {
+          ".read": "auth != null && (auth.uid === $uid || root.child('examshield/users/' + auth.uid + '/role').val() === 'admin' || root.child('examshield/users/' + auth.uid + '/role').val() === 'invigilator')",
+          ".write": "auth != null && root.child('examshield/users/' + auth.uid + '/role').val() === 'admin'"
+        }
+      },
+
+      "incidents": {
+        ".read": "auth != null",
+        "$incidentId": {
+          ".write": "auth != null && (
+            root.child('examshield/users/' + auth.uid + '/role').val() === 'admin' ||
+            (root.child('examshield/users/' + auth.uid + '/role').val() === 'invigilator' && (!data.exists() || data.child('assignedTo').val() === auth.uid)) ||
+            (root.child('examshield/users/' + auth.uid + '/role').val() === 'student' && !data.exists() && newData.child('studentId').val() === auth.uid)
+          )"
+        }
+      },
+
+      "incidentHistory": {
+        ".read": "auth != null",
+        "$incidentId": {
+          "$eventId": {
+            ".write": "auth != null && !data.exists()"
+          }
+        }
+      },
+
+      "attendance": {
+        "$examId": {
+          ".read": "auth != null",
+          "$assignmentId": {
+            ".write": "auth != null && (root.child('examshield/users/' + auth.uid + '/role').val() === 'admin' || root.child('examshield/users/' + auth.uid + '/role').val() === 'invigilator')"
+          }
+        }
+      },
+
+      "roomChecklists": {
+        "$roomId": {
+          ".read": "auth != null",
+          ".write": "auth != null && (root.child('examshield/users/' + auth.uid + '/role').val() === 'admin' || root.child('examshield/users/' + auth.uid + '/role').val() === 'invigilator')"
+        }
+      },
+
+      "announcements": {
+        ".read": "auth != null",
+        ".write": "auth != null && root.child('examshield/users/' + auth.uid + '/role').val() === 'admin'"
+      },
+
+      "qrTokens": {
+        ".read": "auth != null",
+        ".write": "auth != null && root.child('examshield/users/' + auth.uid + '/role').val() === 'admin'"
+      },
+
+      "invigilators": {
+        ".read": "auth != null",
+        "$uid": {
+          ".write": "auth != null && (root.child('examshield/users/' + auth.uid + '/role').val() === 'admin' || auth.uid === $uid)"
+        }
+      }
+    }
+  }
+}
