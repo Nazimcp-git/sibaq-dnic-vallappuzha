@@ -40,33 +40,39 @@ ExamShield is a real-time, mobile-first examination-day emergency operating syst
 - **QR Generation:** QRCode.js
 - **QR Scanning:** html5-qrcode
 - **Spreadsheets:** SheetJS (XLSX)
-- **No build process required** — deploy as static files
+- **No build process required** — run directly with Vite or deploy as static files
 
 ---
 
-## Quick Start
+## Quick Start (Node Vite)
 
-### 1. Create a Firebase Project
+### 1. Install Dependencies
+```bash
+npm install
+```
 
-1. Go to [Firebase Console](https://console.firebase.google.com/)
-2. Create a new project
-3. Enable **Authentication** → Sign-in method → **Email/Password**
-4. Enable **Realtime Database** → Create database → Start in **test mode** (temporarily)
+### 2. Configure Environment (`.env`)
+The Firebase credentials are configured in `.env`:
+```env
+VITE_FIREBASE_API_KEY=AIzaSyC8uMIj-oPS5fPrtTKEQNqMutG1pgWzM5I
+VITE_FIREBASE_AUTH_DOMAIN=exaam-sheild.firebaseapp.com
+VITE_FIREBASE_DATABASE_URL=https://exaam-sheild-default-rtdb.firebaseio.com
+VITE_FIREBASE_PROJECT_ID=exaam-sheild
+VITE_FIREBASE_STORAGE_BUCKET=exaam-sheild.firebasestorage.app
+VITE_FIREBASE_MESSAGING_SENDER_ID=260193808780
+VITE_FIREBASE_APP_ID=1:260193808780:web:7d3b8878484ed45f07a6a9
+```
 
-### 2. Configure Firebase
+### 3. Run Development Server
+```bash
+npm run dev
+```
+ExamShield will start at `http://localhost:5173`.
 
-Open `js/firebase.js` and replace the placeholder config:
-
-```javascript
-const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "your-project.firebaseapp.com",
-  databaseURL: "https://your-project-default-rtdb.firebaseio.com",
-  projectId: "your-project",
-  storageBucket: "your-project.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID"
-};
+### 4. Build for Production
+```bash
+npm run build
+npm run preview
 ```
 
 ### 3. Provision Accounts & Demo Data (1-Click Automated Setup)

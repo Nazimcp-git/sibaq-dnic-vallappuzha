@@ -23,6 +23,8 @@ const STATIC_ASSETS = [
   './js/announcements.js',
   './js/csv-import.js',
   './js/whatsapp.js',
+  './js/countdown.js',
+  './js/campus-map.js',
   './js/offline.js',
   './data/demo-data.js'
 ];

@@ -1,15 +1,37 @@
 // ExamShield — Firebase Configuration & Initialization
-// Firebase SDK v8 Namespaced API
+// Firebase SDK v8 Namespaced API (Supports Vite .env and Static fallbacks)
+
+// 1. Resolve environment configuration from Vite plugin or window.__FIREBASE_CONFIG__
+const _injectedEnv = (typeof window !== 'undefined' && window.__FIREBASE_CONFIG__) ? window.__FIREBASE_CONFIG__ : {};
+
+// 2. Resolve Vite import.meta.env if running in an ES module context
+let _metaEnv = {};
+try {
+  _metaEnv = (new Function('try { return import.meta.env || {}; } catch(e) { return {}; }'))();
+} catch (e) {
+  _metaEnv = {};
+}
+
+function _resolveValue(metaKey, objKey, fallback) {
+  const vMeta = _metaEnv && _metaEnv[metaKey];
+  if (vMeta && typeof vMeta === 'string' && !vMeta.startsWith('%VITE_') && vMeta.trim() !== '') {
+    return vMeta;
+  }
+  const vObj = _injectedEnv && _injectedEnv[objKey];
+  if (vObj && typeof vObj === 'string' && !vObj.startsWith('%VITE_') && vObj.trim() !== '') {
+    return vObj;
+  }
+  return fallback;
+}
 
 const firebaseConfig = {
-  // Replace with your Firebase project configuration
-  apiKey: "AIzaSyC8uMIj-oPS5fPrtTKEQNqMutG1pgWzM5I",
-  authDomain: "exaam-sheild.firebaseapp.com",
-  databaseURL: "https://exaam-sheild-default-rtdb.firebaseio.com",
-  projectId: "exaam-sheild",
-  storageBucket: "exaam-sheild.firebasestorage.app",
-  messagingSenderId: "260193808780",
-  appId: "1:260193808780:web:7d3b8878484ed45f07a6a9"
+  apiKey: _resolveValue('VITE_FIREBASE_API_KEY', 'apiKey', "AIzaSyC8uMIj-oPS5fPrtTKEQNqMutG1pgWzM5I"),
+  authDomain: _resolveValue('VITE_FIREBASE_AUTH_DOMAIN', 'authDomain', "exaam-sheild.firebaseapp.com"),
+  databaseURL: _resolveValue('VITE_FIREBASE_DATABASE_URL', 'databaseURL', "https://exaam-sheild-default-rtdb.firebaseio.com"),
+  projectId: _resolveValue('VITE_FIREBASE_PROJECT_ID', 'projectId', "exaam-sheild"),
+  storageBucket: _resolveValue('VITE_FIREBASE_STORAGE_BUCKET', 'storageBucket', "exaam-sheild.firebasestorage.app"),
+  messagingSenderId: _resolveValue('VITE_FIREBASE_MESSAGING_SENDER_ID', 'messagingSenderId', "260193808780"),
+  appId: _resolveValue('VITE_FIREBASE_APP_ID', 'appId', "1:260193808780:web:7d3b8878484ed45f07a6a9")
 };
 
 // Initialize Firebase
